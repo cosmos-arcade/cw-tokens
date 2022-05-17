@@ -1,3 +1,5 @@
+use std::ops::Add;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -12,29 +14,33 @@ pub struct Config {
     pub cw20_token_address: Addr,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct Stage {
+    start: Scheduled,
+    end: Expiration,
+}
+
 pub const CONFIG_KEY: &str = "config";
 pub const CONFIG: Item<Config> = Item::new(CONFIG_KEY);
-
-pub const LATEST_STAGE_KEY: &str = "stage";
-pub const LATEST_STAGE: Item<u8> = Item::new(LATEST_STAGE_KEY);
-
-pub const STAGE_EXPIRATION_KEY: &str = "stage_exp";
-pub const STAGE_EXPIRATION: Map<u8, Expiration> = Map::new(STAGE_EXPIRATION_KEY);
-
-pub const STAGE_START_KEY: &str = "stage_start";
-pub const STAGE_START: Map<u8, Scheduled> = Map::new(STAGE_START_KEY);
-
-pub const STAGE_AMOUNT_KEY: &str = "stage_amount";
-pub const STAGE_AMOUNT: Map<u8, Uint128> = Map::new(STAGE_AMOUNT_KEY);
-
-pub const STAGE_AMOUNT_CLAIMED_KEY: &str = "stage_claimed_amount";
-pub const STAGE_AMOUNT_CLAIMED: Map<u8, Uint128> = Map::new(STAGE_AMOUNT_CLAIMED_KEY);
 
 pub const MERKLE_ROOT_PREFIX: &str = "merkle_root";
 pub const MERKLE_ROOT: Map<u8, String> = Map::new(MERKLE_ROOT_PREFIX);
 
 pub const CLAIM_PREFIX: &str = "claim";
+// TODO: remove u8
 pub const CLAIM: Map<(&Addr, u8), bool> = Map::new(CLAIM_PREFIX);
 
-pub const CLAIMED_AMOUNT_PREFIX: &str = "claimed_amount";
-pub const CLAIMED_AMOUNT: Map<(&Addr, u8), bool> = Map::new(CLAIMED_AMOUNT_PREFIX);
+pub const BIDS_PREFIX: &str = "bids";
+pub const BIDS: Map<&Addr, Uint128> = Map::new("bids");
+
+pub const STAGE_BID_KEY: &str = "stage_bid";
+pub const STAGE_BID: Item<Stage> = Item::new(STAGE_BID_KEY);
+
+pub const STAGE_CLAIM_AIRDROP_KEY: &str = "stage_claim_airdrop";
+pub const STAGE_CLAIM_AIRDROP: Item<Stage> = Item::new(STAGE_CLAIM_AIRDROP_KEY);
+
+pub const STAGE_CLAIM_PRIZE_KEY: &str = "stage_claim_prize";
+pub const STAGE_CLAIM_PRIZE: Item<Stage> = Item::new(STAGE_CLAIM_PRIZE_KEY);
+
+pub const WINNING_ADDRESSES_KEY: &str = "winning_addresses";
+pub const WINNING_ADDRESSES: Map<&Addr, bool> = Map::new(WINNING_ADDRESSES_KEY);
