@@ -15,8 +15,12 @@ pub struct Config {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+/// struct to manage start and end of static stages
 pub struct Stage {
+    /// start variable will be scheduled by time or block
     start: Scheduled,
+    /// end variable will be scheduled by time or block
+    /// or, if needed, never.
     end: Expiration,
 }
 
@@ -43,7 +47,7 @@ pub const MERKLE_ROOT: Map<u8, String> = Map::new(MERKLE_ROOT_PREFIX);
 
 pub const CLAIM_PREFIX: &str = "claim";
 // TODO: remove u8
-pub const CLAIM: Map<(&Addr, u8), bool> = Map::new(CLAIM_PREFIX);
+pub const CLAIM: Map<&Addr, bool> = Map::new(CLAIM_PREFIX);
 
 pub const BIDS_PREFIX: &str = "bids";
 pub const BIDS: Map<&Addr, Uint128> = Map::new("bids");

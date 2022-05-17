@@ -10,9 +10,13 @@ pub struct InstantiateMsg {
     /// Owner if none set to info.sender.
     pub owner: Option<String>,
     pub cw20_token_address: String,
+    /// price to play
     pub ticket_price: Uint128,
+    /// stage struct for bid phase
     pub stage_bid: Stage,
+    /// stage struct for claim airdrop phase
     pub stage_claim_airdrop: Stage,
+    /// stage struct for claim prize phase
     pub stage_claim_prize: Stage,
 }
 
@@ -25,9 +29,11 @@ pub enum ExecuteMsg {
         new_owner: Option<String>,
     },
     Bid {
+        /// bidding allocation value
         allocation: Uint128,
     },
     ChangeBid {
+        /// input a value to change a previous bid
         allocation: Uint128,
     },
     RemoveBid {},
