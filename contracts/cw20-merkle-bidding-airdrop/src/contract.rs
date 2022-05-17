@@ -60,26 +60,17 @@ pub fn execute(
 ) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::UpdateConfig { new_owner } => execute_update_config(deps, env, info, new_owner),
+        ExecuteMsg::Bid { allocation } => execute_bid(deps, env, info, allocation),
+        ExecuteMsg::ChangeBid { allocation } => execute_change_bid(deps, env, info, allocation),
+        ExecuteMsg::RemoveBid {} => execute_remove_bid(deps, env, info),
         ExecuteMsg::RegisterMerkleRoot {
             merkle_root,
-            expiration,
-            start,
             total_amount,
-        } => execute_register_merkle_root(
-            deps,
-            env,
-            info,
-            merkle_root,
-            expiration,
-            start,
-            total_amount,
-        ),
-        ExecuteMsg::Claim {
-            stage,
-            amount,
-            proof,
-        } => execute_claim(deps, env, info, stage, amount, proof),
-        ExecuteMsg::Burn { stage } => execute_burn(deps, env, info, stage),
+        } => execute_register_merkle_root(deps, env, info, merkle_root, total_amount),
+        ExecuteMsg::ClaimAirdrop { amount, proof } => {
+            execute_claim_airdrop(deps, env, info, amount, proof)
+        }
+        ExecuteMsg::ClaimPrize {} => execute_claim_prize(deps, env, info),
         ExecuteMsg::Withdraw { stage, address } => {
             execute_withdraw(deps, env, info, stage, address)
         }
@@ -118,8 +109,6 @@ pub fn execute_register_merkle_root(
     _env: Env,
     info: MessageInfo,
     merkle_root: String,
-    expiration: Option<Expiration>,
-    start: Option<Scheduled>,
     total_amount: Option<Uint128>,
 ) -> Result<Response, ContractError> {
     let cfg = CONFIG.load(deps.storage)?;
@@ -134,31 +123,30 @@ pub fn execute_register_merkle_root(
     let mut root_buf: [u8; 32] = [0; 32];
     hex::decode_to_slice(&merkle_root, &mut root_buf)?;
 
-    let stage = LATEST_STAGE.update(deps.storage, |stage| -> StdResult<_> { Ok(stage + 1) })?;
-
-    MERKLE_ROOT.save(deps.storage, stage, &merkle_root)?;
-    LATEST_STAGE.save(deps.storage, &stage)?;
-
-    // save expiration
-    let exp = expiration.unwrap_or(Expiration::Never {});
-    STAGE_EXPIRATION.save(deps.storage, stage, &exp)?;
-
-    // save start
-    if let Some(start) = start {
-        STAGE_START.save(deps.storage, stage, &start)?;
-    }
-
-    // save total airdropped amount
-    let amount = total_amount.unwrap_or_else(Uint128::zero);
-    STAGE_AMOUNT.save(deps.storage, stage, &amount)?;
-    STAGE_AMOUNT_CLAIMED.save(deps.storage, stage, &Uint128::zero())?;
+    //MERKLE_ROOT.save(deps.storage, stage, &merkle_root)?;
 
     Ok(Response::new().add_attributes(vec![
         attr("action", "register_merkle_root"),
-        attr("stage", stage.to_string()),
         attr("merkle_root", merkle_root),
-        attr("total_amount", amount),
+        attr("total_amount", total_amount),
     ]))
+}
+
+pub fn execute_bid(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    allocation: Uint128,
+) -> Result<Response, ContractError> {
+    let cfg = CONFIG.load(deps.storage)?;
+
+    // if owner set validate, otherwise unauthorized
+    let owner = cfg.owner.ok_or(ContractError::Unauthorized {})?;
+    if info.sender != owner {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    let bid: Uint128 = 
 }
 
 pub fn execute_claim(
