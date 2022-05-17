@@ -23,16 +23,6 @@ pub struct Stage {
 pub const CONFIG_KEY: &str = "config";
 pub const CONFIG: Item<Config> = Item::new(CONFIG_KEY);
 
-pub const MERKLE_ROOT_PREFIX: &str = "merkle_root";
-pub const MERKLE_ROOT: Map<u8, String> = Map::new(MERKLE_ROOT_PREFIX);
-
-pub const CLAIM_PREFIX: &str = "claim";
-// TODO: remove u8
-pub const CLAIM: Map<(&Addr, u8), bool> = Map::new(CLAIM_PREFIX);
-
-pub const BIDS_PREFIX: &str = "bids";
-pub const BIDS: Map<&Addr, Uint128> = Map::new("bids");
-
 pub const STAGE_BID_KEY: &str = "stage_bid";
 pub const STAGE_BID: Item<Stage> = Item::new(STAGE_BID_KEY);
 
@@ -44,3 +34,16 @@ pub const STAGE_CLAIM_PRIZE: Item<Stage> = Item::new(STAGE_CLAIM_PRIZE_KEY);
 
 pub const WINNING_ADDRESSES_KEY: &str = "winning_addresses";
 pub const WINNING_ADDRESSES: Map<&Addr, bool> = Map::new(WINNING_ADDRESSES_KEY);
+
+pub const TICKET_PRICE_KEY: &str = "ticket_price";
+pub const TICKET_PRICE: Item<Uint128> = Item::new(TICKET_PRICE_KEY);
+
+pub const MERKLE_ROOT_PREFIX: &str = "merkle_root";
+pub const MERKLE_ROOT: Map<u8, String> = Map::new(MERKLE_ROOT_PREFIX);
+
+pub const CLAIM_PREFIX: &str = "claim";
+// TODO: remove u8
+pub const CLAIM: Map<(&Addr, u8), bool> = Map::new(CLAIM_PREFIX);
+
+pub const BIDS_PREFIX: &str = "bids";
+pub const BIDS: Map<&Addr, Uint128> = Map::new("bids");

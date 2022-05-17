@@ -12,12 +12,12 @@ use std::convert::TryInto;
 
 use crate::error::ContractError;
 use crate::msg::{
-    ConfigResponse, ExecuteMsg, InstantiateMsg, IsClaimedResponse, LatestStageResponse,
-    MerkleRootResponse, MigrateMsg, QueryMsg, TotalClaimedResponse,
+    ConfigResponse, ExecuteMsg, InstantiateMsg, IsClaimedResponse, MerkleRootResponse, MigrateMsg,
+    QueryMsg, TotalClaimedResponse,
 };
 use crate::state::{
-    Config, CLAIM, CONFIG, LATEST_STAGE, MERKLE_ROOT, STAGE_AMOUNT, STAGE_AMOUNT_CLAIMED,
-    STAGE_EXPIRATION, STAGE_START,
+    Config, BIDS, CLAIM, CONFIG, MERKLE_ROOT, STAGE_BID, STAGE_CLAIM_AIRDROP, STAGE_CLAIM_PRIZE,
+    TICKET_PRICE,
 };
 
 // Version info, for migration info
@@ -43,8 +43,10 @@ pub fn instantiate(
     };
     CONFIG.save(deps.storage, &config)?;
 
-    let stage = 0;
-    LATEST_STAGE.save(deps.storage, &stage)?;
+    STAGE_BID.save(deps.storage, &msg.stage_bid)?;
+    STAGE_CLAIM_AIRDROP.save(deps.storage, &msg.stage_claim_airdrop)?;
+    STAGE_CLAIM_PRIZE.save(deps.storage, &msg.stage_claim_prize)?;
+    TICKET_PRICE.save(deps.storage, &msg.ticket_price)?;
 
     Ok(Response::default())
 }
