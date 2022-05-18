@@ -18,10 +18,10 @@ pub struct Config {
 /// struct to manage start and end of static stages
 pub struct Stage {
     /// start variable will be scheduled by time or block
-    start: Scheduled,
+    pub start: Scheduled,
     /// end variable will be scheduled by time or block
     /// or, if needed, never.
-    end: Expiration,
+    pub end: Expiration,
 }
 
 pub const CONFIG_KEY: &str = "config";
@@ -46,7 +46,6 @@ pub const MERKLE_ROOT_PREFIX: &str = "merkle_root";
 pub const MERKLE_ROOT: Map<u8, String> = Map::new(MERKLE_ROOT_PREFIX);
 
 pub const CLAIM_PREFIX: &str = "claim";
-// TODO: remove u8
 pub const CLAIM: Map<&Addr, bool> = Map::new(CLAIM_PREFIX);
 
 pub const BIDS_PREFIX: &str = "bids";

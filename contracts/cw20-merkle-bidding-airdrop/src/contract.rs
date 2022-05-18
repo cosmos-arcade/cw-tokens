@@ -1,8 +1,8 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_binary, Addr, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Uint128,
-    WasmMsg,
+    attr, to_binary, Addr, Binary, BlockInfo, Coin, Deps, DepsMut, Env, MessageInfo, Response,
+    StdResult, Timestamp, Uint128, WasmMsg,
 };
 use cw2::{get_contract_version, set_contract_version};
 use cw20::Cw20ExecuteMsg;
@@ -16,8 +16,8 @@ use crate::msg::{
     QueryMsg, TotalClaimedResponse,
 };
 use crate::state::{
-    Config, BIDS, CLAIM, CONFIG, MERKLE_ROOT, STAGE_BID, STAGE_CLAIM_AIRDROP, STAGE_CLAIM_PRIZE,
-    TICKET_PRICE,
+    self, Config, Stage, BIDS, CLAIM, CONFIG, MERKLE_ROOT, STAGE_BID, STAGE_CLAIM_AIRDROP,
+    STAGE_CLAIM_PRIZE, TICKET_PRICE,
 };
 
 // Version info, for migration info
@@ -146,7 +146,35 @@ pub fn execute_bid(
         return Err(ContractError::Unauthorized {});
     }
 
-    let bid: Uint128 = 
+    let ticket_price = TICKET_PRICE.load(deps.storage)?;
+    let stage_bid = STAGE_BID.load(deps.storage)?;
+
+    //you can't bid if Bid Phase didn't start yet
+    if !stage_bid.start.is_triggered(&env.block) {
+        return Err(ContractError::BidStageNotBegun {});
+    }
+
+    //you can't bid if Bid Phase is ended
+    if stage_bid.end.is_expired(&env.block) {
+        return Err(ContractError::BidStageEnded {});
+    }
+
+    //if ticket price not paid, you can't bid
+    if get_amount_for_denom(&info.funds, "ujuno").amount < ticket_price {
+        return Err(ContractError::TicketPriceNotPaid {});
+    }
+
+    BIDS.update(
+        deps.storage,
+        &info.sender,
+        |allocation: Option<Uint128>| -> StdResult<_> { Ok(allocation.unwrap()) },
+    )?;
+
+    let res = Response::new()
+        .add_attribute("action", "bid")
+        .add_attribute("player", info.sender)
+        .add_attribute("allocation", allocation);
+    Ok(res)
 }
 
 pub fn execute_claim(
@@ -330,6 +358,18 @@ pub fn execute_withdraw(
             attr("recipient", address),
         ]);
     Ok(res)
+}
+
+fn get_amount_for_denom(coins: &[Coin], denom: &str) -> Coin {
+    let amount: Uint128 = coins
+        .iter()
+        .filter(|c| c.denom == denom)
+        .map(|c| c.amount)
+        .sum();
+    Coin {
+        amount,
+        denom: denom.to_string(),
+    }
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
