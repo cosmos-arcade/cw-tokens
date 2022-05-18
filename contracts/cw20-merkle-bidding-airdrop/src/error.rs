@@ -3,6 +3,8 @@ use cw_utils::{Expiration, Scheduled};
 use hex::FromHexError;
 use thiserror::Error;
 
+use crate::state::Stage;
+
 #[derive(Error, Debug, PartialEq)]
 pub enum ContractError {
     #[error("{0}")]
@@ -35,6 +37,18 @@ pub enum ContractError {
     #[error("Airdrop stage {stage} not expired yet")]
     StageNotExpired { stage: u8, expiration: Expiration },
 
-    #[error("Airdrop stage {stage} begins at {start}")]
-    StageNotBegun { stage: u8, start: Scheduled },
+    #[error("Bid stage hasn't begun")]
+    BidStageNotBegun {},
+
+    #[error("Claim Airdrop stage hasn't begun")]
+    ClaimAirdropStageNotBegun {},
+
+    #[error("Claim Prize stage hasn't begun")]
+    ClaimPrizeStageNotBegun {},
+
+    #[error("Bid stage has ended")]
+    BidStageEnded {},
+
+    #[error("You must pay ticket price to bid")]
+    TicketPriceNotPaid {},
 }
