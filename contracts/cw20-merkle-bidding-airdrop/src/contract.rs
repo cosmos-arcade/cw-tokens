@@ -61,19 +61,19 @@ pub fn execute(
     match msg {
         ExecuteMsg::UpdateConfig { new_owner } => execute_update_config(deps, env, info, new_owner),
         ExecuteMsg::Bid { allocation } => execute_bid(deps, env, info, allocation),
-        ExecuteMsg::ChangeBid { allocation } => execute_change_bid(deps, env, info, allocation),
-        ExecuteMsg::RemoveBid {} => execute_remove_bid(deps, env, info),
+        //ExecuteMsg::ChangeBid { allocation } => execute_change_bid(deps, env, info, allocation),
+        //ExecuteMsg::RemoveBid {} => execute_remove_bid(deps, env, info),
         ExecuteMsg::RegisterMerkleRoot {
             merkle_root,
             total_amount,
         } => execute_register_merkle_root(deps, env, info, merkle_root, total_amount),
-        ExecuteMsg::ClaimAirdrop { amount, proof } => {
+        /*ExecuteMsg::ClaimAirdrop { amount, proof } => {
             execute_claim_airdrop(deps, env, info, amount, proof)
         }
         ExecuteMsg::ClaimPrize {} => execute_claim_prize(deps, env, info),
         ExecuteMsg::Withdraw { stage, address } => {
             execute_withdraw(deps, env, info, stage, address)
-        }
+        }*/
     }
 }
 
@@ -102,34 +102,6 @@ pub fn execute_update_config(
     })?;
 
     Ok(Response::new().add_attribute("action", "update_config"))
-}
-
-pub fn execute_register_merkle_root(
-    deps: DepsMut,
-    _env: Env,
-    info: MessageInfo,
-    merkle_root: String,
-    total_amount: Option<Uint128>,
-) -> Result<Response, ContractError> {
-    let cfg = CONFIG.load(deps.storage)?;
-
-    // if owner set validate, otherwise unauthorized
-    let owner = cfg.owner.ok_or(ContractError::Unauthorized {})?;
-    if info.sender != owner {
-        return Err(ContractError::Unauthorized {});
-    }
-
-    // check merkle root length
-    let mut root_buf: [u8; 32] = [0; 32];
-    hex::decode_to_slice(&merkle_root, &mut root_buf)?;
-
-    //MERKLE_ROOT.save(deps.storage, stage, &merkle_root)?;
-
-    Ok(Response::new().add_attributes(vec![
-        attr("action", "register_merkle_root"),
-        attr("merkle_root", merkle_root),
-        attr("total_amount", total_amount),
-    ]))
 }
 
 pub fn execute_bid(
@@ -177,187 +149,34 @@ pub fn execute_bid(
     Ok(res)
 }
 
-pub fn execute_claim(
+pub fn execute_register_merkle_root(
     deps: DepsMut,
-    env: Env,
+    _env: Env,
     info: MessageInfo,
-    stage: u8,
-    amount: Uint128,
-    proof: Vec<String>,
+    merkle_root: String,
+    total_amount: Option<Uint128>,
 ) -> Result<Response, ContractError> {
-    // airdrop begun
-    let start = STAGE_START.may_load(deps.storage, stage)?;
-    if let Some(start) = start {
-        if !start.is_triggered(&env.block) {
-            return Err(ContractError::StageNotBegun { stage, start });
-        }
-    }
-    // not expired
-    let expiration = STAGE_EXPIRATION.load(deps.storage, stage)?;
-    if expiration.is_expired(&env.block) {
-        return Err(ContractError::StageExpired { stage, expiration });
+    let cfg = CONFIG.load(deps.storage)?;
+
+    // if owner set validate, otherwise unauthorized
+    let owner = cfg.owner.ok_or(ContractError::Unauthorized {})?;
+    if info.sender != owner {
+        return Err(ContractError::Unauthorized {});
     }
 
-    // verify not claimed
-    let claimed = CLAIM.may_load(deps.storage, (&info.sender, stage))?;
-    if claimed.is_some() {
-        return Err(ContractError::Claimed {});
-    }
-
-    let config = CONFIG.load(deps.storage)?;
-    let merkle_root = MERKLE_ROOT.load(deps.storage, stage)?;
-
-    let user_input = format!("{}{}", info.sender, amount);
-    let hash = sha2::Sha256::digest(user_input.as_bytes())
-        .as_slice()
-        .try_into()
-        .map_err(|_| ContractError::WrongLength {})?;
-
-    let hash = proof.into_iter().try_fold(hash, |hash, p| {
-        let mut proof_buf = [0; 32];
-        hex::decode_to_slice(p, &mut proof_buf)?;
-        let mut hashes = [hash, proof_buf];
-        hashes.sort_unstable();
-        sha2::Sha256::digest(&hashes.concat())
-            .as_slice()
-            .try_into()
-            .map_err(|_| ContractError::WrongLength {})
-    })?;
-
+    // check merkle root length
     let mut root_buf: [u8; 32] = [0; 32];
-    hex::decode_to_slice(merkle_root, &mut root_buf)?;
-    if root_buf != hash {
-        return Err(ContractError::VerificationFailed {});
-    }
+    hex::decode_to_slice(&merkle_root, &mut root_buf)?;
 
-    // Update claim index to the current stage
-    CLAIM.save(deps.storage, (&info.sender, stage), &true)?;
+    let stage_null: u8 = 0;
 
-    // Update total claimed to reflect
-    let mut claimed_amount = STAGE_AMOUNT_CLAIMED.load(deps.storage, stage)?;
-    claimed_amount += amount;
-    STAGE_AMOUNT_CLAIMED.save(deps.storage, stage, &claimed_amount)?;
+    MERKLE_ROOT.save(deps.storage, stage_null, &merkle_root)?;
 
-    let res = Response::new()
-        .add_message(WasmMsg::Execute {
-            contract_addr: config.cw20_token_address.to_string(),
-            funds: vec![],
-            msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                recipient: info.sender.to_string(),
-                amount,
-            })?,
-        })
-        .add_attributes(vec![
-            attr("action", "claim"),
-            attr("stage", stage.to_string()),
-            attr("address", info.sender),
-            attr("amount", amount),
-        ]);
-    Ok(res)
-}
-
-pub fn execute_burn(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-    stage: u8,
-) -> Result<Response, ContractError> {
-    // authorize owner
-    let cfg = CONFIG.load(deps.storage)?;
-    let owner = cfg.owner.ok_or(ContractError::Unauthorized {})?;
-    if info.sender != owner {
-        return Err(ContractError::Unauthorized {});
-    }
-
-    // make sure is expired
-    let expiration = STAGE_EXPIRATION.load(deps.storage, stage)?;
-    if !expiration.is_expired(&env.block) {
-        return Err(ContractError::StageNotExpired { stage, expiration });
-    }
-
-    // Get total amount per stage and total claimed
-    let total_amount = STAGE_AMOUNT.load(deps.storage, stage)?;
-    let claimed_amount = STAGE_AMOUNT_CLAIMED.load(deps.storage, stage)?;
-
-    // impossible but who knows
-    if claimed_amount > total_amount {
-        return Err(ContractError::Unauthorized {});
-    }
-
-    // Get balance
-    let balance_to_burn = total_amount - claimed_amount;
-
-    // Burn the tokens and response
-    let res = Response::new()
-        .add_message(WasmMsg::Execute {
-            contract_addr: cfg.cw20_token_address.to_string(),
-            funds: vec![],
-            msg: to_binary(&Cw20ExecuteMsg::Burn {
-                amount: balance_to_burn,
-            })?,
-        })
-        .add_attributes(vec![
-            attr("action", "burn"),
-            attr("stage", stage.to_string()),
-            attr("address", info.sender),
-            attr("amount", balance_to_burn),
-        ]);
-    Ok(res)
-}
-
-pub fn execute_withdraw(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-    stage: u8,
-    address: String,
-) -> Result<Response, ContractError> {
-    // authorize owner
-    let cfg = CONFIG.load(deps.storage)?;
-    let owner = cfg.owner.ok_or(ContractError::Unauthorized {})?;
-    if info.sender != owner {
-        return Err(ContractError::Unauthorized {});
-    }
-
-    // make sure is expired
-    let expiration = STAGE_EXPIRATION.load(deps.storage, stage)?;
-    if !expiration.is_expired(&env.block) {
-        return Err(ContractError::StageNotExpired { stage, expiration });
-    }
-
-    // Get total amount per stage and total claimed
-    let total_amount = STAGE_AMOUNT.load(deps.storage, stage)?;
-    let claimed_amount = STAGE_AMOUNT_CLAIMED.load(deps.storage, stage)?;
-
-    // impossible but who knows
-    if claimed_amount > total_amount {
-        return Err(ContractError::Unauthorized {});
-    }
-
-    // Get balance
-    let balance_to_withdraw = total_amount - claimed_amount;
-
-    // Validate address
-    let recipient = deps.api.addr_validate(&address)?;
-
-    // Withdraw the tokens and response
-    let res = Response::new()
-        .add_message(WasmMsg::Execute {
-            contract_addr: cfg.cw20_token_address.to_string(),
-            funds: vec![],
-            msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                recipient: recipient.into(),
-                amount: balance_to_withdraw,
-            })?,
-        })
-        .add_attributes(vec![
-            attr("action", "withdraw"),
-            attr("stage", stage.to_string()),
-            attr("address", info.sender),
-            attr("amount", balance_to_withdraw),
-            attr("recipient", address),
-        ]);
-    Ok(res)
+    Ok(Response::new().add_attributes(vec![
+        attr("action", "register_merkle_root"),
+        attr("merkle_root", merkle_root),
+        attr("total_amount", total_amount.unwrap()),
+    ]))
 }
 
 fn get_amount_for_denom(coins: &[Coin], denom: &str) -> Coin {
@@ -431,7 +250,6 @@ pub fn query_total_claimed(deps: Deps, stage: u8) -> StdResult<TotalClaimedRespo
 
     Ok(resp)
 }
-
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     let version = get_contract_version(deps.storage)?;
@@ -457,6 +275,19 @@ mod tests {
         let msg = InstantiateMsg {
             owner: Some("owner0000".to_string()),
             cw20_token_address: "anchor0000".to_string(),
+            ticket_price: Uint128::from(555555u128),
+            stage_bid: Stage {
+                start: Scheduled::AtHeight(555),
+                end: Expiration::AtHeight(555),
+            },
+            stage_claim_airdrop: Stage {
+                start: Scheduled::AtHeight(777),
+                end: Expiration::AtHeight(777),
+            },
+            stage_claim_prize: Stage {
+                start: Scheduled::AtHeight(999),
+                end: Expiration::AtHeight(999),
+            },
         };
 
         let env = mock_env();
@@ -470,10 +301,6 @@ mod tests {
         let config: ConfigResponse = from_binary(&res).unwrap();
         assert_eq!("owner0000", config.owner.unwrap().as_str());
         assert_eq!("anchor0000", config.cw20_token_address.as_str());
-
-        let res = query(deps.as_ref(), env, QueryMsg::LatestStage {}).unwrap();
-        let latest_stage: LatestStageResponse = from_binary(&res).unwrap();
-        assert_eq!(0u8, latest_stage.latest_stage);
     }
 
     #[test]
@@ -483,6 +310,19 @@ mod tests {
         let msg = InstantiateMsg {
             owner: None,
             cw20_token_address: "anchor0000".to_string(),
+            ticket_price: Uint128::from(555555u128),
+            stage_bid: Stage {
+                start: Scheduled::AtHeight(555),
+                end: Expiration::AtHeight(555),
+            },
+            stage_claim_airdrop: Stage {
+                start: Scheduled::AtHeight(777),
+                end: Expiration::AtHeight(777),
+            },
+            stage_claim_prize: Stage {
+                start: Scheduled::AtHeight(999),
+                end: Expiration::AtHeight(999),
+            },
         };
 
         let env = mock_env();
@@ -581,7 +421,7 @@ mod tests {
         proofs: Vec<String>,
     }
 
-    #[test]
+    /*#[test]
     fn claim() {
         // Run test 1
         let mut deps = mock_dependencies();
@@ -726,7 +566,7 @@ mod tests {
             .total_claimed,
             test_data.amount
         );
-    }
+    }*/
 
     const TEST_DATA_1_MULTI: &[u8] =
         include_bytes!("../testdata/airdrop_stage_1_test_multi_data.json");
@@ -823,6 +663,19 @@ mod tests {
         let msg = InstantiateMsg {
             owner: Some("owner0000".to_string()),
             cw20_token_address: "token0000".to_string(),
+            ticket_price: Uint128::from(555555u128),
+            stage_bid: Stage {
+                start: Scheduled::AtHeight(555),
+                end: Expiration::AtHeight(555),
+            },
+            stage_claim_airdrop: Stage {
+                start: Scheduled::AtHeight(777),
+                end: Expiration::AtHeight(777),
+            },
+            stage_claim_prize: Stage {
+                start: Scheduled::AtHeight(999),
+                end: Expiration::AtHeight(999),
+            },
         };
 
         let env = mock_env();
@@ -835,14 +688,12 @@ mod tests {
         let msg = ExecuteMsg::RegisterMerkleRoot {
             merkle_root: "5d4f48f147cb6cb742b376dce5626b2a036f69faec10cd73631c791780e150fc"
                 .to_string(),
-            expiration: Some(Expiration::AtHeight(100)),
-            start: None,
             total_amount: None,
         };
         execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
 
         // can't claim expired
-        let msg = ExecuteMsg::Claim {
+        /*let msg = ExecuteMsg::Claim {
             amount: Uint128::new(5),
             stage: 1u8,
             proof: vec![],
@@ -855,9 +706,7 @@ mod tests {
                 stage: 1,
                 expiration: Expiration::AtHeight(100)
             }
-        )
-    }
-
+        )*/
     #[test]
     fn cant_burn() {
         let mut deps = mock_dependencies();

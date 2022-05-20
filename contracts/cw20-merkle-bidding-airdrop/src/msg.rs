@@ -32,18 +32,18 @@ pub enum ExecuteMsg {
         /// bidding allocation value
         allocation: Uint128,
     },
-    ChangeBid {
+    /*ChangeBid {
         /// input a value to change a previous bid
         allocation: Uint128,
     },
-    RemoveBid {},
+    RemoveBid {},*/
     RegisterMerkleRoot {
         /// MerkleRoot is hex-encoded merkle root.
         merkle_root: String,
         total_amount: Option<Uint128>,
     },
-    /// Claim does not check if contract has enough funds, owner must ensure it.
-    ClaimAirdrop {
+    // Claim does not check if contract has enough funds, owner must ensure it.
+    /*ClaimAirdrop {
         amount: Uint128,
         /// Proof is hex-encoded merkle proof.
         proof: Vec<String>,
@@ -52,7 +52,7 @@ pub enum ExecuteMsg {
     /// Withdraw the remaining tokens after expire time (only owner)
     Withdraw {
         address: String,
-    },
+    },*/
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -91,6 +91,5 @@ pub struct IsClaimedResponse {
 pub struct TotalClaimedResponse {
     pub total_claimed: Uint128,
 }
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct MigrateMsg {}

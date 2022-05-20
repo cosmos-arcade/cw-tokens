@@ -3,8 +3,6 @@ use cw_utils::{Expiration, Scheduled};
 use hex::FromHexError;
 use thiserror::Error;
 
-use crate::state::Stage;
-
 #[derive(Error, Debug, PartialEq)]
 pub enum ContractError {
     #[error("{0}")]
