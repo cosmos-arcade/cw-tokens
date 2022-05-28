@@ -32,15 +32,14 @@ pub enum ExecuteMsg {
         /// bidding allocation value
         allocation: Uint128,
     },
-    /*ChangeBid {
+    ChangeBid {
         /// input a value to change a previous bid
         allocation: Uint128,
     },
-    RemoveBid {},*/
+    RemoveBid {},
     RegisterMerkleRoot {
         /// MerkleRoot is hex-encoded merkle root.
         merkle_root: String,
-        total_amount: Option<Uint128>,
     },
     // Claim does not check if contract has enough funds, owner must ensure it.
     /*ClaimAirdrop {
@@ -59,10 +58,8 @@ pub enum ExecuteMsg {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     Config {},
-    MerkleRoot { stage: u8 },
-    LatestStage {},
-    IsClaimed { stage: u8, address: String },
-    TotalClaimed { stage: u8 },
+    MerkleRoot {},
+    Bid {},
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
@@ -74,22 +71,14 @@ pub struct ConfigResponse {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct MerkleRootResponse {
-    pub stage: u8,
     /// MerkleRoot is hex-encoded merkle root.
     pub merkle_root: String,
-    pub expiration: Expiration,
-    pub start: Option<Scheduled>,
-    pub total_amount: Uint128,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct IsClaimedResponse {
-    pub is_claimed: bool,
+pub struct BidResponse {
+    bid: Uint128,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct TotalClaimedResponse {
-    pub total_claimed: Uint128,
-}
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct MigrateMsg {}

@@ -2,7 +2,7 @@
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, to_binary, Addr, Binary, BlockInfo, Coin, Deps, DepsMut, Env, MessageInfo, Response,
-    StdResult, Timestamp, Uint128, WasmMsg,
+    StdResult, Timestamp, Uint128, CosmosMsg,
 };
 use cw2::{get_contract_version, set_contract_version};
 use cw20::Cw20ExecuteMsg;
@@ -12,8 +12,8 @@ use std::convert::TryInto;
 
 use crate::error::ContractError;
 use crate::msg::{
-    ConfigResponse, ExecuteMsg, InstantiateMsg, IsClaimedResponse, MerkleRootResponse, MigrateMsg,
-    QueryMsg, TotalClaimedResponse,
+    ConfigResponse, ExecuteMsg, InstantiateMsg, MerkleRootResponse, MigrateMsg,
+    QueryMsg, BidResponse,
 };
 use crate::state::{
     self, Config, Stage, BIDS, CLAIM, CONFIG, MERKLE_ROOT, STAGE_BID, STAGE_CLAIM_AIRDROP,
@@ -61,12 +61,11 @@ pub fn execute(
     match msg {
         ExecuteMsg::UpdateConfig { new_owner } => execute_update_config(deps, env, info, new_owner),
         ExecuteMsg::Bid { allocation } => execute_bid(deps, env, info, allocation),
-        //ExecuteMsg::ChangeBid { allocation } => execute_change_bid(deps, env, info, allocation),
-        //ExecuteMsg::RemoveBid {} => execute_remove_bid(deps, env, info),
+        ExecuteMsg::ChangeBid { allocation } => execute_change_bid(deps, env, info, allocation),
+        ExecuteMsg::RemoveBid {} => execute_remove_bid(deps, env, info),
         ExecuteMsg::RegisterMerkleRoot {
             merkle_root,
-            total_amount,
-        } => execute_register_merkle_root(deps, env, info, merkle_root, total_amount),
+        } => execute_register_merkle_root(deps, env, info, merkle_root),
         /*ExecuteMsg::ClaimAirdrop { amount, proof } => {
             execute_claim_airdrop(deps, env, info, amount, proof)
         }
@@ -106,7 +105,7 @@ pub fn execute_update_config(
 
 pub fn execute_bid(
     deps: DepsMut,
-    env: Env,
+    _env: Env,
     info: MessageInfo,
     allocation: Uint128,
 ) -> Result<Response, ContractError> {
@@ -122,12 +121,12 @@ pub fn execute_bid(
     let stage_bid = STAGE_BID.load(deps.storage)?;
 
     //you can't bid if Bid Phase didn't start yet
-    if !stage_bid.start.is_triggered(&env.block) {
+    if !stage_bid.start.is_triggered(&_env.block) {
         return Err(ContractError::BidStageNotBegun {});
     }
 
     //you can't bid if Bid Phase is ended
-    if stage_bid.end.is_expired(&env.block) {
+    if stage_bid.end.is_expired(&_env.block) {
         return Err(ContractError::BidStageEnded {});
     }
 
@@ -154,7 +153,6 @@ pub fn execute_register_merkle_root(
     _env: Env,
     info: MessageInfo,
     merkle_root: String,
-    total_amount: Option<Uint128>,
 ) -> Result<Response, ContractError> {
     let cfg = CONFIG.load(deps.storage)?;
 
@@ -170,14 +168,106 @@ pub fn execute_register_merkle_root(
 
     let stage_null: u8 = 0;
 
-    MERKLE_ROOT.save(deps.storage, stage_null, &merkle_root)?;
+    MERKLE_ROOT.save(deps.storage, &merkle_root)?;
 
     Ok(Response::new().add_attributes(vec![
         attr("action", "register_merkle_root"),
         attr("merkle_root", merkle_root),
-        attr("total_amount", total_amount.unwrap()),
     ]))
 }
+
+pub fn execute_change_bid(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    allocation: Uint128,
+) -> Result<Response, ContractError> {
+    let cfg = CONFIG.load(deps.storage)?;
+
+    // if owner set validate, otherwise unauthorized
+    let owner = cfg.owner.ok_or(ContractError::Unauthorized {})?;
+    if info.sender != owner {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    let stage_bid = STAGE_BID.load(deps.storage)?;
+    
+    //you can't change bid if Bid Phase didn't start yet
+    if !stage_bid.start.is_triggered(&_env.block) {
+        return Err(ContractError::BidStageNotBegun {});
+    }
+
+    //you can't change bid if Bid Phase is ended
+    if stage_bid.end.is_expired(&_env.block) {
+        return Err(ContractError::BidStageEnded {});
+    }
+
+    let bid = BIDS.load(deps.storage, &info.sender)?;
+    
+    // you must have bid before, to change it
+    if bid == Uint128::zero() {
+        return Err(ContractError::NonExistentBid {});
+    }
+
+    BIDS.update(
+        deps.storage,
+        &info.sender,
+        |allocation: Option<Uint128>| -> StdResult<_> { Ok(allocation.unwrap()) },
+    )?;
+
+    let res = Response::new()
+        .add_attribute("action", "change_bid")
+        .add_attribute("player", info.sender)
+        .add_attribute("allocation", allocation);
+    Ok(res)
+
+}
+
+pub fn execute_remove_bid(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+) -> Result<Response, ContractError> {
+    let cfg = CONFIG.load(deps.storage)?;
+
+    // if owner set validate, otherwise unauthorized
+    let owner = cfg.owner.ok_or(ContractError::Unauthorized {})?;
+    if info.sender != owner {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    let ticket_price = TICKET_PRICE.load(deps.storage)?;
+    let stage_bid = STAGE_BID.load(deps.storage)?;
+    
+    //you can't remove bid if Bid Phase didn't start yet
+    if !stage_bid.start.is_triggered(&_env.block) {
+        return Err(ContractError::BidStageNotBegun {});
+    }
+
+    //you can't remove bid if Bid Phase is ended
+    if stage_bid.end.is_expired(&_env.block) {
+        return Err(ContractError::BidStageEnded {});
+    }
+
+    let bid = BIDS.load(deps.storage, &info.sender)?;
+    
+    // you must have bid before, to remove it
+    if bid == Uint128::zero() {
+        return Err(ContractError::NonExistentBid {});
+    }
+
+    BIDS.remove(deps.storage, &info.sender);
+
+    
+    send_back_bid(&info.sender, bid, "ujuno");
+
+    let res = Response::new()
+        .add_attribute("action", "remove_bid")
+        .add_attribute("player", info.sender);
+    Ok(res)
+
+}
+
 
 fn get_amount_for_denom(coins: &[Coin], denom: &str) -> Coin {
     let amount: Uint128 = coins
@@ -191,16 +281,27 @@ fn get_amount_for_denom(coins: &[Coin], denom: &str) -> Coin {
     }
 }
 
+fn send_back_bid(recipient: &Addr, bid: Uint128, denom: &str) -> CosmosMsg {
+
+    let transfer_bank_msg = cosmwasm_std::BankMsg::Send {
+        to_address: recipient.into(),
+        amount: vec![Coin {
+            denom: denom.to_string(),
+            amount: bid,
+        }],
+    };
+
+    let transfer_bank_cosmos_msg: CosmosMsg = transfer_bank_msg.into();
+    transfer_bank_cosmos_msg  
+}
+
+
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&query_config(deps)?),
-        QueryMsg::MerkleRoot { stage } => to_binary(&query_merkle_root(deps, stage)?),
-        QueryMsg::LatestStage {} => to_binary(&query_latest_stage(deps)?),
-        QueryMsg::IsClaimed { stage, address } => {
-            to_binary(&query_is_claimed(deps, stage, address)?)
-        }
-        QueryMsg::TotalClaimed { stage } => to_binary(&query_total_claimed(deps, stage)?),
+        QueryMsg::MerkleRoot {} => to_binary(&query_merkle_root(deps)?),
+        QueryMsg::Bid {} => to_binary(&query_bid(deps)?),
     }
 }
 
@@ -212,44 +313,24 @@ pub fn query_config(deps: Deps) -> StdResult<ConfigResponse> {
     })
 }
 
-pub fn query_merkle_root(deps: Deps, stage: u8) -> StdResult<MerkleRootResponse> {
-    let merkle_root = MERKLE_ROOT.load(deps.storage, stage)?;
-    let expiration = STAGE_EXPIRATION.load(deps.storage, stage)?;
-    let start = STAGE_START.may_load(deps.storage, stage)?;
-    let total_amount = STAGE_AMOUNT.load(deps.storage, stage)?;
+pub fn query_merkle_root(deps: Deps) -> StdResult<MerkleRootResponse> {
+    let merkle_root = MERKLE_ROOT.load(deps.storage)?; 
+    let stage_bid = STAGE_BID.load(deps.storage)?;
+    let stage_claim_airdrop = STAGE_CLAIM_AIRDROP.may_load(deps.storage)?;
+    let stage_claim_prize = STAGE_CLAIM_PRIZE.load(deps.storage)?;
 
-    let resp = MerkleRootResponse {
-        stage,
-        merkle_root,
-        expiration,
-        start,
-        total_amount,
-    };
+    let resp = MerkleRootResponse {merkle_root};
 
     Ok(resp)
 }
 
-pub fn query_latest_stage(deps: Deps) -> StdResult<LatestStageResponse> {
-    let latest_stage = LATEST_STAGE.load(deps.storage)?;
-    let resp = LatestStageResponse { latest_stage };
+pub fn query_bid(deps: Deps) -> StdResult<BidResponse> {
 
-    Ok(resp)
 }
 
-pub fn query_is_claimed(deps: Deps, stage: u8, address: String) -> StdResult<IsClaimedResponse> {
-    let key: (&Addr, u8) = (&deps.api.addr_validate(&address)?, stage);
-    let is_claimed = CLAIM.may_load(deps.storage, key)?.unwrap_or(false);
-    let resp = IsClaimedResponse { is_claimed };
 
-    Ok(resp)
-}
 
-pub fn query_total_claimed(deps: Deps, stage: u8) -> StdResult<TotalClaimedResponse> {
-    let total_claimed = STAGE_AMOUNT_CLAIMED.load(deps.storage, stage)?;
-    let resp = TotalClaimedResponse { total_claimed };
 
-    Ok(resp)
-}
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     let version = get_contract_version(deps.storage)?;

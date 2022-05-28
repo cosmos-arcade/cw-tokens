@@ -43,7 +43,7 @@ pub const TICKET_PRICE_KEY: &str = "ticket_price";
 pub const TICKET_PRICE: Item<Uint128> = Item::new(TICKET_PRICE_KEY);
 
 pub const MERKLE_ROOT_PREFIX: &str = "merkle_root";
-pub const MERKLE_ROOT: Map<u8, String> = Map::new(MERKLE_ROOT_PREFIX);
+pub const MERKLE_ROOT: Item<String> = Item::new(MERKLE_ROOT_PREFIX);
 
 pub const CLAIM_PREFIX: &str = "claim";
 pub const CLAIM: Map<&Addr, bool> = Map::new(CLAIM_PREFIX);

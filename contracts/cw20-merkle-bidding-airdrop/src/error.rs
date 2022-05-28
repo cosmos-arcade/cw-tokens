@@ -49,4 +49,10 @@ pub enum ContractError {
 
     #[error("You must pay ticket price to bid")]
     TicketPriceNotPaid {},
+
+    #[error("You didn't bid anything yet")]
+    NonExistentBid {},
+
+    #[error("Invalid zero amount")]
+    InvalidZeroAmount {},
 }
