@@ -42,14 +42,14 @@ pub enum ExecuteMsg {
         merkle_root: String,
     },
     // Claim does not check if contract has enough funds, owner must ensure it.
-    /*ClaimAirdrop {
+    ClaimAirdrop {
         amount: Uint128,
         /// Proof is hex-encoded merkle proof.
         proof: Vec<String>,
     },
     ClaimPrize {},
-    /// Withdraw the remaining tokens after expire time (only owner)
-    Withdraw {
+    // Withdraw the remaining tokens after expire time (only owner)
+    /*Withdraw {
         address: String,
     },*/
 }

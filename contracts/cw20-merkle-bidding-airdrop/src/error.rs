@@ -29,11 +29,11 @@ pub enum ContractError {
     #[error("Cannot migrate from different contract type: {previous_contract}")]
     CannotMigrate { previous_contract: String },
 
-    #[error("Airdrop stage {stage} expired at {expiration}")]
-    StageExpired { stage: u8, expiration: Expiration },
+    #[error("Claim Airdrop stage has expired")]
+    ClaimAirdropStageExpired {},
 
-    #[error("Airdrop stage {stage} not expired yet")]
-    StageNotExpired { stage: u8, expiration: Expiration },
+    #[error("Claim Prize stage has expired")]
+    ClaimPrizeStageExpired {},
 
     #[error("Bid stage hasn't begun")]
     BidStageNotBegun {},
@@ -44,8 +44,8 @@ pub enum ContractError {
     #[error("Claim Prize stage hasn't begun")]
     ClaimPrizeStageNotBegun {},
 
-    #[error("Bid stage has ended")]
-    BidStageEnded {},
+    #[error("Bid stage has expired")]
+    BidStageExpired {},
 
     #[error("You must pay ticket price to bid")]
     TicketPriceNotPaid {},

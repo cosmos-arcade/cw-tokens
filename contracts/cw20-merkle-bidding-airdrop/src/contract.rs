@@ -2,7 +2,7 @@
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, to_binary, Addr, Binary, BlockInfo, Coin, Deps, DepsMut, Env, MessageInfo, Response,
-    StdResult, Timestamp, Uint128, CosmosMsg,
+    StdResult, Timestamp, Uint128, CosmosMsg, WasmMsg,
 };
 use cw2::{get_contract_version, set_contract_version};
 use cw20::Cw20ExecuteMsg;
@@ -66,11 +66,11 @@ pub fn execute(
         ExecuteMsg::RegisterMerkleRoot {
             merkle_root,
         } => execute_register_merkle_root(deps, env, info, merkle_root),
-        /*ExecuteMsg::ClaimAirdrop { amount, proof } => {
+        ExecuteMsg::ClaimAirdrop { amount, proof } => {
             execute_claim_airdrop(deps, env, info, amount, proof)
         }
         ExecuteMsg::ClaimPrize {} => execute_claim_prize(deps, env, info),
-        ExecuteMsg::Withdraw { stage, address } => {
+        /*ExecuteMsg::Withdraw { stage, address } => {
             execute_withdraw(deps, env, info, stage, address)
         }*/
     }
@@ -117,7 +117,6 @@ pub fn execute_bid(
         return Err(ContractError::Unauthorized {});
     }
 
-    let ticket_price = TICKET_PRICE.load(deps.storage)?;
     let stage_bid = STAGE_BID.load(deps.storage)?;
 
     //you can't bid if Bid Phase didn't start yet
@@ -127,8 +126,10 @@ pub fn execute_bid(
 
     //you can't bid if Bid Phase is ended
     if stage_bid.end.is_expired(&_env.block) {
-        return Err(ContractError::BidStageEnded {});
+        return Err(ContractError::BidStageExpired {});
     }
+
+    let ticket_price = TICKET_PRICE.load(deps.storage)?;
 
     //if ticket price not paid, you can't bid
     if get_amount_for_denom(&info.funds, "ujuno").amount < ticket_price {
@@ -246,7 +247,7 @@ pub fn execute_remove_bid(
 
     //you can't remove bid if Bid Phase is ended
     if stage_bid.end.is_expired(&_env.block) {
-        return Err(ContractError::BidStageEnded {});
+        return Err(ContractError::BidStageExpired {});
     }
 
     let bid = BIDS.load(deps.storage, &info.sender)?;
@@ -258,7 +259,6 @@ pub fn execute_remove_bid(
 
     BIDS.remove(deps.storage, &info.sender);
 
-    
     send_back_bid(&info.sender, bid, "ujuno");
 
     let res = Response::new()
@@ -267,6 +267,81 @@ pub fn execute_remove_bid(
     Ok(res)
 
 }
+
+pub fn execute_claim_airdrop(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    amount: Uint128,
+    proof: Vec<String>,
+) ->Result<Response, ContractError> {
+
+    let stage_claim_aidrop = STAGE_CLAIM_AIRDROP.load(deps.storage)?;
+
+    // throw an error if airdrop claim stage hasn't started
+    if !stage_claim_aidrop.start.is_triggered(&_env.block) {
+        return Err(ContractError::ClaimAirdropStageNotBegun {});
+    }
+
+    // throw an error if airdrop claim stage is expired
+    if stage_claim_aidrop.end.is_expired(&_env.block) {
+        return Err(ContractError::ClaimAirdropStageExpired {})
+    }
+
+    // verify not claimed
+    let claimed = CLAIM.may_load(deps.storage, &info.sender)?;
+    if claimed.is_some() {
+        return Err(ContractError::Claimed {});
+    }
+
+    let config = CONFIG.load(deps.storage)?;
+    let merkle_root = MERKLE_ROOT.load(deps.storage)?;
+
+    let user_input = format!("{}{}", info.sender, amount);
+    let hash: [u8; 32] = sha2::Sha256::digest(user_input.as_bytes())
+        .as_slice()
+        .try_into()
+        .map_err(|_| ContractError::WrongLength {})?;
+
+
+    let hash = proof.into_iter().try_fold(hash, |hash, p| {
+        let mut proof_buf = [0; 32];
+        hex::decode_to_slice(p, &mut proof_buf)?;
+        let mut hashes = [hash, proof_buf];
+        hashes.sort_unstable();
+        sha2::Sha256::digest(&hashes.concat())
+            .as_slice()
+            .try_into()
+            .map_err(|_| ContractError::WrongLength {})
+    })?;
+
+
+    let mut root_buf: [u8; 32] = [0; 32];
+    hex::decode_to_slice(merkle_root, &mut root_buf)?;
+    if root_buf != hash {
+        return Err(ContractError::VerificationFailed {});
+    }
+
+    // Update claim index
+    CLAIM.save(deps.storage, &info.sender, &true)?;
+
+
+    let res = Response::new()
+        .add_message(WasmMsg::Execute {
+            contract_addr: config.cw20_token_address.to_string(),
+            funds: vec![],
+            msg: to_binary(&Cw20ExecuteMsg::Transfer {
+                recipient: info.sender.to_string(),
+                amount,
+            })?,
+        })
+        .add_attribute("action", "claim_airdrop")
+        .add_attribute("address", info.sender)
+        .add_attribute("amount", amount);
+    Ok(res)
+
+}
+
 
 
 fn get_amount_for_denom(coins: &[Coin], denom: &str) -> Coin {
