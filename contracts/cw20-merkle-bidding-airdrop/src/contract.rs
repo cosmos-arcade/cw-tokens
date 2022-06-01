@@ -386,7 +386,7 @@ fn bank_transfer_to_msg(recipient: &Addr, amount: Uint128, denom: &str) -> Cosmo
         to_address: recipient.into(),
         amount: vec![Coin {
             denom: denom.to_string(),
-            amount: bid,
+            amount: amount,
         }],
     };
 
