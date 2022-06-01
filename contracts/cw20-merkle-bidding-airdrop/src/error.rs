@@ -55,4 +55,10 @@ pub enum ContractError {
 
     #[error("Invalid zero amount")]
     InvalidZeroAmount {},
+
+    #[error("InsufficientFunds")]
+    InsufficientFunds {},
+
+    #[error("Incorrect native denom: provided: {provided}, required: {required}")]
+    IncorrectNativeDenom { provided: String, required: String },
 }

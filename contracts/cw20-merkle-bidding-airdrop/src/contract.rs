@@ -5,7 +5,7 @@ use cosmwasm_std::{
     StdResult, Timestamp, Uint128, CosmosMsg, WasmMsg,
 };
 use cw2::{get_contract_version, set_contract_version};
-use cw20::Cw20ExecuteMsg;
+use cw20::{Cw20ExecuteMsg, Denom};
 use cw_utils::{Expiration, Scheduled};
 use sha2::Digest;
 use std::convert::TryInto;
@@ -63,9 +63,7 @@ pub fn execute(
         ExecuteMsg::Bid { allocation } => execute_bid(deps, env, info, allocation),
         ExecuteMsg::ChangeBid { allocation } => execute_change_bid(deps, env, info, allocation),
         ExecuteMsg::RemoveBid {} => execute_remove_bid(deps, env, info),
-        ExecuteMsg::RegisterMerkleRoot {
-            merkle_root,
-        } => execute_register_merkle_root(deps, env, info, merkle_root),
+        ExecuteMsg::RegisterMerkleRoot { merkle_root } => execute_register_merkle_root(deps, env, info, merkle_root),
         ExecuteMsg::ClaimAirdrop { amount, proof } => {
             execute_claim_airdrop(deps, env, info, amount, proof)
         }
@@ -109,14 +107,6 @@ pub fn execute_bid(
     info: MessageInfo,
     allocation: Uint128,
 ) -> Result<Response, ContractError> {
-    let cfg = CONFIG.load(deps.storage)?;
-
-    // if owner set validate, otherwise unauthorized
-    let owner = cfg.owner.ok_or(ContractError::Unauthorized {})?;
-    if info.sender != owner {
-        return Err(ContractError::Unauthorized {});
-    }
-
     let stage_bid = STAGE_BID.load(deps.storage)?;
 
     //you can't bid if Bid Phase didn't start yet
@@ -133,7 +123,7 @@ pub fn execute_bid(
 
     //if ticket price not paid, you can't bid
     if get_amount_for_denom(&info.funds, "ujuno").amount < ticket_price {
-        return Err(ContractError::TicketPriceNotPaid {});
+        return Err(ContractError::TicketPriceNotPaid {}); 
     }
 
     BIDS.update(
@@ -141,6 +131,7 @@ pub fn execute_bid(
         &info.sender,
         |allocation: Option<Uint128>| -> StdResult<_> { Ok(allocation.unwrap()) },
     )?;
+
 
     let res = Response::new()
         .add_attribute("action", "bid")
@@ -166,8 +157,6 @@ pub fn execute_register_merkle_root(
     // check merkle root length
     let mut root_buf: [u8; 32] = [0; 32];
     hex::decode_to_slice(&merkle_root, &mut root_buf)?;
-
-    let stage_null: u8 = 0;
 
     MERKLE_ROOT.save(deps.storage, &merkle_root)?;
 
@@ -200,7 +189,7 @@ pub fn execute_change_bid(
 
     //you can't change bid if Bid Phase is ended
     if stage_bid.end.is_expired(&_env.block) {
-        return Err(ContractError::BidStageEnded {});
+        return Err(ContractError::BidStageExpired {});
     }
 
     let bid = BIDS.load(deps.storage, &info.sender)?;
@@ -259,7 +248,7 @@ pub fn execute_remove_bid(
 
     BIDS.remove(deps.storage, &info.sender);
 
-    send_back_bid(&info.sender, bid, "ujuno");
+    bank_transfer_to_msg(&info.sender, ticket_price, "ujuno");
 
     let res = Response::new()
         .add_attribute("action", "remove_bid")
@@ -325,7 +314,6 @@ pub fn execute_claim_airdrop(
     // Update claim index
     CLAIM.save(deps.storage, &info.sender, &true)?;
 
-
     let res = Response::new()
         .add_message(WasmMsg::Execute {
             contract_addr: config.cw20_token_address.to_string(),
@@ -342,6 +330,42 @@ pub fn execute_claim_airdrop(
 
 }
 
+pub fn execute_claim_prize(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    amount: Uint128,
+) ->Result<Response, ContractError> {
+
+
+
+    let res = Response::new();
+    Ok(res)
+}
+
+
+fn validate_input_amount(
+    actual_funds: &[Coin],
+    given_amount: Uint128,
+    given_denom: &Denom,
+) -> Result<(), ContractError> {
+    match given_denom {
+        Denom::Cw20(_) => Ok(()),
+        Denom::Native(denom) => {
+            let actual = get_amount_for_denom(actual_funds, denom);
+            if actual.amount != given_amount {
+                return Err(ContractError::InsufficientFunds {});
+            }
+            if &actual.denom != denom {
+                return Err(ContractError::IncorrectNativeDenom {
+                    provided: actual.denom,
+                    required: denom.to_string(),
+                });
+            };
+            Ok(())
+        }
+    }
+}
 
 
 fn get_amount_for_denom(coins: &[Coin], denom: &str) -> Coin {
@@ -356,7 +380,7 @@ fn get_amount_for_denom(coins: &[Coin], denom: &str) -> Coin {
     }
 }
 
-fn send_back_bid(recipient: &Addr, bid: Uint128, denom: &str) -> CosmosMsg {
+fn bank_transfer_to_msg(recipient: &Addr, amount: Uint128, denom: &str) -> CosmosMsg {
 
     let transfer_bank_msg = cosmwasm_std::BankMsg::Send {
         to_address: recipient.into(),
