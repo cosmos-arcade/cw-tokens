@@ -12,6 +12,7 @@ pub struct Config {
     /// Owner If None set, contract is frozen.
     pub owner: Option<Addr>,
     pub cw20_token_address: Addr,
+    //ciao ste
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
