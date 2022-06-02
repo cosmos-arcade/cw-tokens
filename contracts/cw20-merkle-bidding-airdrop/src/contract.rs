@@ -13,10 +13,10 @@ use std::convert::TryInto;
 use crate::error::ContractError;
 use crate::msg::{
     ConfigResponse, ExecuteMsg, InstantiateMsg, MerkleRootResponse, MigrateMsg,
-    QueryMsg, BidResponse,
+    QueryMsg, BidResponse, StagesInfoResponse,
 };
 use crate::state::{
-    self, Config, Stage, BIDS, CLAIM, CONFIG, MERKLE_ROOT, STAGE_BID, STAGE_CLAIM_AIRDROP,
+    self, Config, Stage, BIDS, CONFIG, MERKLE_ROOT, STAGE_BID, STAGE_CLAIM_AIRDROP,
     STAGE_CLAIM_PRIZE, TICKET_PRICE,
 };
 
@@ -27,12 +27,13 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     msg: InstantiateMsg,
-) -> StdResult<Response> {
+) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
+    // If owner not in message, set it as sender.
     let owner = msg
         .owner
         .map_or(Ok(info.sender), |o| deps.api.addr_validate(&o))?;
@@ -41,8 +42,29 @@ pub fn instantiate(
         owner: Some(owner),
         cw20_token_address: deps.api.addr_validate(&msg.cw20_token_address)?,
     };
-    CONFIG.save(deps.storage, &config)?;
 
+    let stage_bid_end = (msg.stage_bid.start + msg.stage_bid.duration)?;
+    let stage_claim_airdrop_end = (msg.stage_claim_airdrop.start + msg.stage_claim_airdrop.duration)?;
+
+    // Bid stage have to start after contract instantiation.
+    if msg.stage_bid.start.is_triggered(&env.block) {
+        return Err(ContractError::BidStartPassed {});
+    }
+
+    if stage_bid_end > msg.stage_claim_airdrop.start {
+        let first = String::from("bid");
+        let second = String::from("Claim airdrop");
+        return Err(ContractError::StagesOverlap { first, second });
+    } 
+
+    if stage_claim_airdrop_end > msg.stage_claim_prize.start {
+        let first = String::from("claim aidrop");
+        let second = String::from("Claim prize");
+        return Err(ContractError::StagesOverlap { first, second });
+    }
+
+    // Save contract's state after validity check avoid useless computation.
+    CONFIG.save(deps.storage, &config)?;
     STAGE_BID.save(deps.storage, &msg.stage_bid)?;
     STAGE_CLAIM_AIRDROP.save(deps.storage, &msg.stage_claim_airdrop)?;
     STAGE_CLAIM_PRIZE.save(deps.storage, &msg.stage_claim_prize)?;
@@ -399,6 +421,7 @@ fn bank_transfer_to_msg(recipient: &Addr, amount: Uint128, denom: &str) -> Cosmo
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&query_config(deps)?),
+        QueryMsg::StagesInfo {} => to_binary(&query_stages_info(deps)?),
         QueryMsg::MerkleRoot {} => to_binary(&query_merkle_root(deps)?),
         QueryMsg::Bid {} => to_binary(&query_bid(deps)?),
     }
@@ -409,6 +432,18 @@ pub fn query_config(deps: Deps) -> StdResult<ConfigResponse> {
     Ok(ConfigResponse {
         owner: cfg.owner.map(|o| o.to_string()),
         cw20_token_address: cfg.cw20_token_address.to_string(),
+    })
+}
+
+/// Returns stages's information.
+pub fn query_stages_info(deps: Deps) -> StdResult<StagesInfoResponse> {
+    let stage_bid = STAGE_BID.load(deps.storage)?;
+    let stage_claim_airdrop = STAGE_CLAIM_AIRDROP.load(deps.storage)?;
+    let stage_claim_prize = STAGE_CLAIM_PRIZE.load(deps.storage)?;
+    Ok(StagesInfoResponse {
+        stage_bid: stage_bid,
+        stage_claim_airdrop: stage_claim_airdrop,
+        stage_claim_prize: stage_claim_prize
     })
 }
 
@@ -446,33 +481,40 @@ mod tests {
     use super::*;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
     use cosmwasm_std::{from_binary, from_slice, CosmosMsg, SubMsg};
+    use cw_utils::Duration;
     use serde::Deserialize;
 
     #[test]
     fn proper_instantiation() {
         let mut deps = mock_dependencies();
 
+        let stage_bid = Stage {
+            start: Scheduled::AtHeight(200_000),
+            duration: Duration::Height(1)
+        };
+
+        let stage_claim_airdrop = Stage {
+            start: Scheduled::AtHeight(202_000),
+            duration: Duration::Height(1)
+        };
+
+        let stage_claim_prize = Stage {
+            start: Scheduled::AtHeight(204_000),
+            duration: Duration::Height(1)
+        };
+
         let msg = InstantiateMsg {
             owner: Some("owner0000".to_string()),
-            cw20_token_address: "anchor0000".to_string(),
-            ticket_price: Uint128::from(555555u128),
-            stage_bid: Stage {
-                start: Scheduled::AtHeight(555),
-                end: Expiration::AtHeight(555),
-            },
-            stage_claim_airdrop: Stage {
-                start: Scheduled::AtHeight(777),
-                end: Expiration::AtHeight(777),
-            },
-            stage_claim_prize: Stage {
-                start: Scheduled::AtHeight(999),
-                end: Expiration::AtHeight(999),
-            },
+            cw20_token_address: "random0000".to_string(),
+            ticket_price: Uint128::new(10),
+            stage_bid: stage_bid,
+            stage_claim_airdrop: stage_claim_airdrop,
+            stage_claim_prize: stage_claim_prize
         };
 
         let env = mock_env();
         let info = mock_info("addr0000", &[]);
-
+    
         // we can just call .unwrap() to assert this was a success
         let _res = instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
 
@@ -480,7 +522,12 @@ mod tests {
         let res = query(deps.as_ref(), env.clone(), QueryMsg::Config {}).unwrap();
         let config: ConfigResponse = from_binary(&res).unwrap();
         assert_eq!("owner0000", config.owner.unwrap().as_str());
-        assert_eq!("anchor0000", config.cw20_token_address.as_str());
+        assert_eq!("random0000", config.cw20_token_address.as_str());
+
+        let res = query(deps.as_ref(), env, QueryMsg::StagesInfo {}).unwrap();
+        let stages_info: StagesInfoResponse = from_binary(&res).unwrap();
+        assert_eq!(Scheduled::AtHeight(200_000), stages_info.stage_bid.start);
+
     }
 
     #[test]

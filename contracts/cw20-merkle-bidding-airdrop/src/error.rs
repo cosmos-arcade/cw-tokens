@@ -61,4 +61,10 @@ pub enum ContractError {
 
     #[error("Incorrect native denom: provided: {provided}, required: {required}")]
     IncorrectNativeDenom { provided: String, required: String },
+
+    #[error("Bid stage cannot start in the past.")]
+    BidStartPassed {},
+
+    #[error("{second} stage overlaps {first} stage.")]
+    StagesOverlap { first: String, second: String },
 }

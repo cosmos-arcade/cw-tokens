@@ -9,14 +9,15 @@ use cw_utils::{Expiration, Scheduled};
 pub struct InstantiateMsg {
     /// Owner if none set to info.sender.
     pub owner: Option<String>,
+    /// Address of the token.
     pub cw20_token_address: String,
-    /// price to play
+    /// Price of the ticket to bid.
     pub ticket_price: Uint128,
-    /// stage struct for bid phase
+    /// Info related to the bidding stage.
     pub stage_bid: Stage,
-    /// stage struct for claim airdrop phase
+    /// Info related to the airdrop claiming stage.
     pub stage_claim_airdrop: Stage,
-    /// stage struct for claim prize phase
+    /// Info related to the prize claiming stage.
     pub stage_claim_prize: Stage,
 }
 
@@ -58,6 +59,7 @@ pub enum ExecuteMsg {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     Config {},
+    StagesInfo {},
     MerkleRoot {},
     Bid {},
 }
@@ -82,3 +84,10 @@ pub struct BidResponse {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct MigrateMsg {}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct StagesInfoResponse {
+    pub stage_bid: Stage,
+    pub stage_claim_airdrop: Stage,
+    pub stage_claim_prize: Stage,
+}
