@@ -150,6 +150,8 @@ pub fn execute_bid(
         return Err(ContractError::IncorrectBidValue {});
     }
 
+    // TODO: controllo allocation
+
     let ticket_price = TICKET_PRICE.load(deps.storage)?;
 
     //if ticket price not paid, you can't bid
@@ -380,8 +382,8 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&query_config(deps)?),
         QueryMsg::StagesInfo {} => to_binary(&query_stages_info(deps)?),
-        QueryMsg::MerkleRoot {} => to_binary(&query_merkle_root(deps)?),
-        QueryMsg::Bid {} => to_binary(&query_bid(deps)?),
+        QueryMsg::MerkleRoot {} => todo!(),
+        QueryMsg::Bid {} => todo!(),
     }
 }
 
