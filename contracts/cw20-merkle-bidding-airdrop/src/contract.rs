@@ -81,18 +81,29 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::UpdateConfig { new_owner } => execute_update_config(deps, env, info, new_owner),
-        ExecuteMsg::Bid { allocation } => execute_bid(deps, env, info, allocation),
-        ExecuteMsg::ChangeBid { allocation } => execute_change_bid(deps, env, info, allocation),
+        ExecuteMsg::UpdateConfig { 
+            new_owner 
+        } => execute_update_config(deps, env, info, new_owner),
+        ExecuteMsg::Bid { 
+            allocation 
+        } => execute_bid(deps, env, info, allocation),
+        ExecuteMsg::ChangeBid { 
+            allocation 
+        } => execute_change_bid(deps, env, info, allocation),
         ExecuteMsg::RemoveBid {} => execute_remove_bid(deps, env, info),
-        ExecuteMsg::RegisterMerkleRoot { merkle_root } => execute_register_merkle_root(deps, env, info, merkle_root),
-        ExecuteMsg::ClaimAirdrop { amount, proof } => {
-            execute_claim_airdrop(deps, env, info, amount, proof)
-        }
-        ExecuteMsg::ClaimPrize {} => execute_claim_prize(deps, env, info),
-        /*ExecuteMsg::Withdraw { stage, address } => {
-            execute_withdraw(deps, env, info, stage, address)
-        }*/
+        ExecuteMsg::RegisterMerkleRoot { 
+            merkle_root 
+        } => execute_register_merkle_root(deps, env, info, merkle_root),
+        ExecuteMsg::ClaimAirdrop { 
+            amount, proof 
+        } => execute_claim_airdrop(deps, env, info, amount, proof),
+        ExecuteMsg:: WithdrawAirdrop {
+            address
+        } => todo!(),
+        ExecuteMsg::ClaimPrize {} => todo!(),
+        ExecuteMsg::WithdrawPrize { 
+            address 
+        } => todo!()
     }
 }
 
@@ -104,7 +115,9 @@ pub fn execute_update_config(
 ) -> Result<Response, ContractError> {
     // authorize owner
     let cfg = CONFIG.load(deps.storage)?;
+    // If owner not present the config cannot be updated
     let owner = cfg.owner.ok_or(ContractError::Unauthorized {})?;
+    // Just the owner can update the config
     if info.sender != owner {
         return Err(ContractError::Unauthorized {});
     }
@@ -131,34 +144,47 @@ pub fn execute_bid(
 ) -> Result<Response, ContractError> {
     let stage_bid = STAGE_BID.load(deps.storage)?;
 
-    //you can't bid if Bid Phase didn't start yet
+    // Bid not allowed if Bid Phase didn't start yet.
     if !stage_bid.start.is_triggered(&_env.block) {
         return Err(ContractError::BidStageNotBegun {});
     }
 
-    //you can't bid if Bid Phase is ended
-    if stage_bid.end.is_expired(&_env.block) {
+    // Bid not allowed if Bid Phase is ended.
+    let stage_bid_end = (stage_bid.start + stage_bid.duration)?;
+    if stage_bid_end.is_triggered(&_env.block) {
         return Err(ContractError::BidStageExpired {});
     }
 
     let ticket_price = TICKET_PRICE.load(deps.storage)?;
 
-    //if ticket price not paid, you can't bid
-    if get_amount_for_denom(&info.funds, "ujuno").amount < ticket_price {
+    // If ticket price not paid, bid is not allowed.
+    let fund_sent = get_amount_for_denom(&info.funds, "ujuno");
+    if  fund_sent.amount < ticket_price {
         return Err(ContractError::TicketPriceNotPaid {}); 
     }
 
+    // If sender sent funds higher than ticket price, return change.
+    let mut transfer_msgs: Vec<CosmosMsg> = vec![];
+    if fund_sent.amount > ticket_price {
+        transfer_msgs.push(get_bank_transfer_to_msg(
+            &info.sender,
+            &fund_sent.denom,
+            fund_sent.amount - ticket_price,
+        ))
+    }
+
+    // Save address and bid
     BIDS.update(
         deps.storage,
         &info.sender,
-        |allocation: Option<Uint128>| -> StdResult<_> { Ok(allocation.unwrap()) },
+        |ticket_price: Option<Uint128>| -> StdResult<_> { Ok(ticket_price.unwrap()) },
     )?;
 
 
     let res = Response::new()
         .add_attribute("action", "bid")
         .add_attribute("player", info.sender)
-        .add_attribute("allocation", allocation);
+        .add_attribute("allocation", ticket_price);
     Ok(res)
 }
 
@@ -476,6 +502,19 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, C
     Ok(Response::default())
 }
 
+fn get_bank_transfer_to_msg(recipient: &Addr, denom: &str, native_amount: Uint128) -> CosmosMsg {
+    let transfer_bank_msg = cosmwasm_std::BankMsg::Send {
+        to_address: recipient.into(),
+        amount: vec![Coin {
+            denom: denom.to_string(),
+            amount: native_amount,
+        }],
+    };
+
+    let transfer_bank_cosmos_msg: CosmosMsg = transfer_bank_msg.into();
+    transfer_bank_cosmos_msg
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -484,10 +523,7 @@ mod tests {
     use cw_utils::Duration;
     use serde::Deserialize;
 
-    #[test]
-    fn proper_instantiation() {
-        let mut deps = mock_dependencies();
-
+    fn valid_stages () -> (Stage, Stage, Stage) {
         let stage_bid = Stage {
             start: Scheduled::AtHeight(200_000),
             duration: Duration::Height(1)
@@ -502,6 +538,14 @@ mod tests {
             start: Scheduled::AtHeight(204_000),
             duration: Duration::Height(1)
         };
+
+        return (stage_bid, stage_claim_airdrop, stage_claim_prize)
+    }
+    #[test]
+    fn proper_instantiation() {
+        let mut deps = mock_dependencies();
+
+        let (stage_bid, stage_claim_airdrop, stage_claim_prize) = valid_stages();
 
         let msg = InstantiateMsg {
             owner: Some("owner0000".to_string()),
@@ -1295,4 +1339,5 @@ mod tests {
         let res = execute(deps.as_mut(), env, info, msg).unwrap_err();
         assert_eq!(res, ContractError::Unauthorized {});
     }
+}
 }

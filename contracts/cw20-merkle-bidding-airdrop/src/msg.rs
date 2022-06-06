@@ -24,35 +24,46 @@ pub struct InstantiateMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecuteMsg {
+    /// Update current contract configuration.
     UpdateConfig {
         /// NewOwner if non sent, contract gets locked. Recipients can receive airdrops
         /// but owner cannot register new stages.
         new_owner: Option<String>,
     },
+    /// Place a bid.
     Bid {
         /// bidding allocation value
         allocation: Uint128,
     },
+    /// Change the value of a previously placed bid.
     ChangeBid {
         /// input a value to change a previous bid
         allocation: Uint128,
     },
+    /// Remove a previously placed bid.
     RemoveBid {},
+    /// Register Merkle root in the contract.
     RegisterMerkleRoot {
         /// MerkleRoot is hex-encoded merkle root.
         merkle_root: String,
     },
     // Claim does not check if contract has enough funds, owner must ensure it.
+    /// Claim airdrop allocation.
     ClaimAirdrop {
         amount: Uint128,
         /// Proof is hex-encoded merkle proof.
         proof: Vec<String>,
     },
+    /// Withdraw unclaimed airdrop allocation into a wallet (only owner).
+    WithdrawAirdrop {
+        address: String
+    },
+    /// Claim prize allocation.
     ClaimPrize {},
-    // Withdraw the remaining tokens after expire time (only owner)
-    /*Withdraw {
+    /// Withdraw unclaimed prize into a wallet (only owner).
+    WithdrawPrize {
         address: String,
-    },*/
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

@@ -44,11 +44,11 @@ pub const TICKET_PRICE: Item<Uint128> = Item::new(TICKET_PRICE_KEY);
 pub const MERKLE_ROOT_PREFIX: &str = "merkle_root";
 pub const MERKLE_ROOT: Map<u8, String> = Map::new(MERKLE_ROOT_PREFIX);
 
-/// Storage to save if an addres has claimed the airdrop or not
+/// Storage to save if an addres has claimed the airdrop or not.
 pub const CLAIM_AIRDROP_PREFIX: &str = "claim_airdrop";
 pub const CLAIM_AIRDROP: Map<&Addr, bool> = Map::new(CLAIM_AIRDROP_PREFIX);
 
-/// Storage to save if a winning addres has claimed the prize or not
+/// Storage to save if a winning addres has claimed the prize or not.
 pub const CLAIM_PRIZE_PREFIX: &str = "claim_prize";
 pub const CLAIM_PRIZE: Map<&Addr, bool> = Map::new(CLAIM_PRIZE_PREFIX);
 
