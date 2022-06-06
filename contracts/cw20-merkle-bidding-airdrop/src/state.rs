@@ -1,8 +1,8 @@
+use cosmwasm_std::{Addr, Uint128};
+use cw_storage_plus::{Item, Map};
+use cw_utils::{Duration, Scheduled};
 use schemars::JsonSchema;
-use serde::{ Deserialize, Serialize };
-use cosmwasm_std::{ Addr, Uint128 };
-use cw_storage_plus::{ Item, Map };
-use cw_utils::{ Scheduled, Duration };
+use serde::{Deserialize, Serialize};
 
 /// Struct to manage the contract configuration.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -42,7 +42,7 @@ pub const TICKET_PRICE_KEY: &str = "ticket_price";
 pub const TICKET_PRICE: Item<Uint128> = Item::new(TICKET_PRICE_KEY);
 
 pub const MERKLE_ROOT_PREFIX: &str = "merkle_root";
-pub const MERKLE_ROOT: Map<u8, String> = Map::new(MERKLE_ROOT_PREFIX);
+pub const MERKLE_ROOT: Item<String> = Item::new(MERKLE_ROOT_PREFIX);
 
 /// Storage to save if an addres has claimed the airdrop or not
 pub const CLAIM_AIRDROP_PREFIX: &str = "claim_airdrop";

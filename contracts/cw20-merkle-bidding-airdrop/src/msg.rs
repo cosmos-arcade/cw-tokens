@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::state::Stage;
 use cosmwasm_std::Uint128;
-use cw_utils::{Expiration, Scheduled};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
@@ -48,11 +47,18 @@ pub enum ExecuteMsg {
         /// Proof is hex-encoded merkle proof.
         proof: Vec<String>,
     },
-    ClaimPrize {},
-    // Withdraw the remaining tokens after expire time (only owner)
-    /*Withdraw {
+    ClaimPrize {
+        amount: Uint128,
+        proof: Vec<String>,
+    },
+    // Withdraw the remaining Airdrop tokens after expire time (only owner)
+    WithdrawAirdrop {
         address: String,
-    },*/
+    },
+    // Withdraw the remaining Prize tokens after expire time (only owner)
+    WithdrawPrize {
+        address: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

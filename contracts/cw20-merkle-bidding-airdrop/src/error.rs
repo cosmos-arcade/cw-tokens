@@ -1,5 +1,4 @@
 use cosmwasm_std::StdError;
-use cw_utils::{Expiration, Scheduled};
 use hex::FromHexError;
 use thiserror::Error;
 
@@ -52,6 +51,9 @@ pub enum ContractError {
 
     #[error("You didn't bid anything yet")]
     NonExistentBid {},
+
+    #[error("You didn't bid anything yet")]
+    IncorrectBidValue {},
 
     #[error("Invalid zero amount")]
     InvalidZeroAmount {},
