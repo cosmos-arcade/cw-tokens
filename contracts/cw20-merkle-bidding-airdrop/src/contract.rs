@@ -144,6 +144,10 @@ pub fn execute_bid(
 
     let ticket_price = TICKET_PRICE.load(deps.storage)?;
 
+    // Controllare se bid già esistente
+
+    // Bid minori di zero non vanno bene
+
     // If ticket price not paid, bid is not allowed.
     let fund_sent = get_amount_for_denom(&info.funds, "ujuno");
     if fund_sent.amount < ticket_price {
@@ -653,4 +657,76 @@ mod tests {
         let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
         assert_eq!(ContractError::TicketPriceNotPaid {}, res);
     }
+
+    #[test]
+    fn change_bid() {
+        let mut deps = mock_dependencies();
+
+        let (stage_bid, stage_claim_airdrop, stage_claim_prize) = valid_stages();
+
+        let msg = InstantiateMsg {
+            owner: Some("owner0000".to_string()),
+            cw20_token_address: "random0000".to_string(),
+            ticket_price: Uint128::new(10),
+            stage_bid: stage_bid,
+            stage_claim_airdrop: stage_claim_airdrop,
+            stage_claim_prize: stage_claim_prize,
+        };
+
+        let env = mock_env();
+        let info = mock_info("owner0000", &[]);
+        let _res = instantiate(deps.as_mut(), env, info, msg).unwrap();
+
+        // Place a valid bid without change
+        let mut env = mock_env();
+        env.block.height = 200_001;
+
+        let info = mock_info(
+            "owner0001",
+            &[Coin {
+                denom: String::from("ujuno"),
+                amount: Uint128::new(10),
+            }],
+        );
+
+        let msg = ExecuteMsg::Bid {
+            allocation: Uint128::new(5_000_000),
+        };
+
+        let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        assert_eq!(0, res.messages.len());
+
+        // Place a valid bid with change
+        let info = mock_info(
+            "owner0001",
+            &[Coin {
+                denom: String::from("ujuno"),
+                amount: Uint128::new(13),
+            }],
+        );
+
+        let msg = ExecuteMsg::Bid {
+            allocation: Uint128::new(5_000_000),
+        };
+
+        let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        assert_eq!(1, res.messages.len());
+
+        // Place unvalid bid
+        let info = mock_info(
+            "owner0001",
+            &[Coin {
+                denom: String::from("ujuno"),
+                amount: Uint128::new(1),
+            }],
+        );
+
+        let msg = ExecuteMsg::Bid {
+            allocation: Uint128::new(5_000_000),
+        };
+
+        let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
+        assert_eq!(ContractError::TicketPriceNotPaid {}, res);
+    }
+
 }
