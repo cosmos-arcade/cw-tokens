@@ -1,8 +1,8 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_binary, Addr, Binary, BlockInfo, Coin, Deps, DepsMut, Env, MessageInfo, Response,
-    StdResult, Timestamp, Uint128, CosmosMsg, WasmMsg,
+    attr, to_binary, Addr, Binary, BlockInfo, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo,
+    Response, StdResult, Timestamp, Uint128, WasmMsg,
 };
 use cw2::{get_contract_version, set_contract_version};
 use cw20::{Cw20ExecuteMsg, Denom};
@@ -12,8 +12,8 @@ use std::convert::TryInto;
 
 use crate::error::ContractError;
 use crate::msg::{
-    ConfigResponse, ExecuteMsg, InstantiateMsg, MerkleRootResponse, MigrateMsg,
-    QueryMsg, BidResponse, StagesInfoResponse,
+    BidResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, MerkleRootResponse, MigrateMsg,
+    QueryMsg, StagesInfoResponse,
 };
 use crate::state::{
     self, Config, Stage, BIDS, CONFIG, MERKLE_ROOT, STAGE_BID, STAGE_CLAIM_AIRDROP,
@@ -44,7 +44,8 @@ pub fn instantiate(
     };
 
     let stage_bid_end = (msg.stage_bid.start + msg.stage_bid.duration)?;
-    let stage_claim_airdrop_end = (msg.stage_claim_airdrop.start + msg.stage_claim_airdrop.duration)?;
+    let stage_claim_airdrop_end =
+        (msg.stage_claim_airdrop.start + msg.stage_claim_airdrop.duration)?;
 
     // Bid stage have to start after contract instantiation.
     if msg.stage_bid.start.is_triggered(&env.block) {
@@ -55,7 +56,7 @@ pub fn instantiate(
         let first = String::from("bid");
         let second = String::from("Claim airdrop");
         return Err(ContractError::StagesOverlap { first, second });
-    } 
+    }
 
     if stage_claim_airdrop_end > msg.stage_claim_prize.start {
         let first = String::from("claim aidrop");
@@ -81,29 +82,15 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::UpdateConfig { 
-            new_owner 
-        } => execute_update_config(deps, env, info, new_owner),
-        ExecuteMsg::Bid { 
-            allocation 
-        } => execute_bid(deps, env, info, allocation),
-        ExecuteMsg::ChangeBid { 
-            allocation 
-        } => todo!(),
+        ExecuteMsg::UpdateConfig { new_owner } => execute_update_config(deps, env, info, new_owner),
+        ExecuteMsg::Bid { allocation } => execute_bid(deps, env, info, allocation),
+        ExecuteMsg::ChangeBid { allocation } => execute_change_bid(deps, env, info, allocation),
         ExecuteMsg::RemoveBid {} => todo!(),
-        ExecuteMsg::RegisterMerkleRoot { 
-            merkle_root 
-        } => todo!(),
-        ExecuteMsg::ClaimAirdrop { 
-            amount, proof 
-        } => todo!(),
-        ExecuteMsg:: WithdrawAirdrop {
-            address
-        } => todo!(),
+        ExecuteMsg::RegisterMerkleRoot { merkle_root } => todo!(),
+        ExecuteMsg::ClaimAirdrop { amount, proof } => todo!(),
+        ExecuteMsg::WithdrawAirdrop { address } => todo!(),
         ExecuteMsg::ClaimPrize {} => todo!(),
-        ExecuteMsg::WithdrawPrize { 
-            address 
-        } => todo!()
+        ExecuteMsg::WithdrawPrize { address } => todo!(),
     }
 }
 
@@ -144,12 +131,12 @@ pub fn execute_bid(
 ) -> Result<Response, ContractError> {
     let stage_bid = STAGE_BID.load(deps.storage)?;
 
-    // Bid not allowed if Bid Phase didn't start yet.
+    // Bid not allowed if bid phase didn't start yet.
     if !stage_bid.start.is_triggered(&_env.block) {
         return Err(ContractError::BidStageNotBegun {});
     }
 
-    // Bid not allowed if Bid Phase is ended.
+    // Bid not allowed if bid phase is ended.
     let stage_bid_end = (stage_bid.start + stage_bid.duration)?;
     if stage_bid_end.is_triggered(&_env.block) {
         return Err(ContractError::BidStageExpired {});
@@ -159,14 +146,14 @@ pub fn execute_bid(
 
     // If ticket price not paid, bid is not allowed.
     let fund_sent = get_amount_for_denom(&info.funds, "ujuno");
-    if  fund_sent.amount < ticket_price {
-        return Err(ContractError::TicketPriceNotPaid {}); 
+    if fund_sent.amount < ticket_price {
+        return Err(ContractError::TicketPriceNotPaid {});
     }
 
     // If sender sent funds higher than ticket price, return change.
-    let mut transfer_msgs: Vec<CosmosMsg> = vec![];
+    let mut transfer_msg: Vec<CosmosMsg> = vec![];
     if fund_sent.amount > ticket_price {
-        transfer_msgs.push(get_bank_transfer_to_msg(
+        transfer_msg.push(get_bank_transfer_to_msg(
             &info.sender,
             &fund_sent.denom,
             fund_sent.amount - ticket_price,
@@ -174,21 +161,52 @@ pub fn execute_bid(
     }
 
     // Save address and bid
-    BIDS.update(
-        deps.storage,
-        &info.sender,
-        |ticket_price: Option<Uint128>| -> StdResult<_> { Ok(ticket_price.unwrap()) },
-    )?;
-
+    BIDS.save(deps.storage, &info.sender, &allocation)?;
 
     let res = Response::new()
+    .add_messages(transfer_msg)
         .add_attribute("action", "bid")
         .add_attribute("player", info.sender)
-        .add_attribute("allocation", ticket_price);
+        .add_attribute("allocation", allocation);
     Ok(res)
 }
 
-/* 
+pub fn execute_change_bid(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    allocation: Uint128,
+) -> Result<Response, ContractError> {
+    let stage_bid = STAGE_BID.load(deps.storage)?;
+
+    // Change bid not allowed if bid phase didn't start yet.
+    if !stage_bid.start.is_triggered(&_env.block) {
+        return Err(ContractError::BidStageNotBegun {});
+    }
+
+    // Change bid not allowed if bid phase is ended.
+    let stage_bid_end = (stage_bid.start + stage_bid.duration)?;
+    if stage_bid_end.is_triggered(&_env.block) {
+        return Err(ContractError::BidStageExpired {});
+    }
+
+    // It will rise an error if info.sender dosn't have an active bid.
+    BIDS.load(deps.storage, &info.sender)?;
+
+    BIDS.update(
+        deps.storage,
+        &info.sender,
+        |allocation: Option<Uint128>| -> StdResult<_> { Ok(allocation.unwrap()) },
+    )?;
+
+    let res = Response::new()
+        .add_attribute("action", "change_bid")
+        .add_attribute("player", info.sender)
+        .add_attribute("new_allocation", allocation);
+    Ok(res)
+}
+
+/*
 pub fn execute_register_merkle_root(
     deps: DepsMut,
     _env: Env,
@@ -215,54 +233,6 @@ pub fn execute_register_merkle_root(
     ]))
 }
 
-pub fn execute_change_bid(
-    deps: DepsMut,
-    _env: Env,
-    info: MessageInfo,
-    allocation: Uint128,
-) -> Result<Response, ContractError> {
-    let cfg = CONFIG.load(deps.storage)?;
-
-    // if owner set validate, otherwise unauthorized
-    let owner = cfg.owner.ok_or(ContractError::Unauthorized {})?;
-    if info.sender != owner {
-        return Err(ContractError::Unauthorized {});
-    }
-
-    let stage_bid = STAGE_BID.load(deps.storage)?;
-    
-    //you can't change bid if Bid Phase didn't start yet
-    if !stage_bid.start.is_triggered(&_env.block) {
-        return Err(ContractError::BidStageNotBegun {});
-    }
-
-    let stage_bid_end = (stage_bid.start + stage_bid.duration)?;
-    //you can't change bid if Bid Phase is ended
-    if stage_bid_end.is_triggered(&_env.block) {
-        return Err(ContractError::BidStageExpired {});
-    }
-
-    let bid = BIDS.load(deps.storage, &info.sender)?;
-    
-    // you must have bid before, to change it
-    if bid == Uint128::zero() {
-        return Err(ContractError::NonExistentBid {});
-    }
-
-    BIDS.update(
-        deps.storage,
-        &info.sender,
-        |allocation: Option<Uint128>| -> StdResult<_> { Ok(allocation.unwrap()) },
-    )?;
-
-    let res = Response::new()
-        .add_attribute("action", "change_bid")
-        .add_attribute("player", info.sender)
-        .add_attribute("allocation", allocation);
-    Ok(res)
-
-}
-
 pub fn execute_remove_bid(
     deps: DepsMut,
     _env: Env,
@@ -278,7 +248,7 @@ pub fn execute_remove_bid(
 
     let ticket_price = TICKET_PRICE.load(deps.storage)?;
     let stage_bid = STAGE_BID.load(deps.storage)?;
-    
+
     //you can't remove bid if Bid Phase didn't start yet
     if !stage_bid.start.is_triggered(&_env.block) {
         return Err(ContractError::BidStageNotBegun {});
@@ -291,7 +261,7 @@ pub fn execute_remove_bid(
     }
 
     let bid = BIDS.load(deps.storage, &info.sender)?;
-    
+
     // you must have bid before, to remove it
     if bid == Uint128::zero() {
         return Err(ContractError::NonExistentBid {});
@@ -419,7 +389,6 @@ fn validate_input_amount(
     }
 }
 
-
 fn get_amount_for_denom(coins: &[Coin], denom: &str) -> Coin {
     let amount: Uint128 = coins
         .iter()
@@ -433,7 +402,6 @@ fn get_amount_for_denom(coins: &[Coin], denom: &str) -> Coin {
 }
 
 fn bank_transfer_to_msg(recipient: &Addr, amount: Uint128, denom: &str) -> CosmosMsg {
-
     let transfer_bank_msg = cosmwasm_std::BankMsg::Send {
         to_address: recipient.into(),
         amount: vec![Coin {
@@ -443,9 +411,8 @@ fn bank_transfer_to_msg(recipient: &Addr, amount: Uint128, denom: &str) -> Cosmo
     };
 
     let transfer_bank_cosmos_msg: CosmosMsg = transfer_bank_msg.into();
-    transfer_bank_cosmos_msg  
+    transfer_bank_cosmos_msg
 }
-
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
@@ -473,13 +440,13 @@ pub fn query_stages_info(deps: Deps) -> StdResult<StagesInfoResponse> {
     Ok(StagesInfoResponse {
         stage_bid: stage_bid,
         stage_claim_airdrop: stage_claim_airdrop,
-        stage_claim_prize: stage_claim_prize
+        stage_claim_prize: stage_claim_prize,
     })
 }
 
-/* 
+/*
 pub fn query_merkle_root(deps: Deps) -> StdResult<MerkleRootResponse> {
-    let merkle_root = MERKLE_ROOT.load(deps.storage)?; 
+    let merkle_root = MERKLE_ROOT.load(deps.storage)?;
     let stage_bid = STAGE_BID.load(deps.storage)?;
     let stage_claim_airdrop = STAGE_CLAIM_AIRDROP.may_load(deps.storage)?;
     let stage_claim_prize = STAGE_CLAIM_PRIZE.load(deps.storage)?;
@@ -522,23 +489,23 @@ mod tests {
     use cw_utils::Duration;
     use serde::Deserialize;
 
-    fn valid_stages () -> (Stage, Stage, Stage) {
+    fn valid_stages() -> (Stage, Stage, Stage) {
         let stage_bid = Stage {
             start: Scheduled::AtHeight(200_000),
-            duration: Duration::Height(1)
+            duration: Duration::Height(2),
         };
 
         let stage_claim_airdrop = Stage {
-            start: Scheduled::AtHeight(202_000),
-            duration: Duration::Height(1)
+            start: Scheduled::AtHeight(203_000),
+            duration: Duration::Height(2),
         };
 
         let stage_claim_prize = Stage {
-            start: Scheduled::AtHeight(204_000),
-            duration: Duration::Height(1)
+            start: Scheduled::AtHeight(206_000),
+            duration: Duration::Height(2),
         };
 
-        return (stage_bid, stage_claim_airdrop, stage_claim_prize)
+        return (stage_bid, stage_claim_airdrop, stage_claim_prize);
     }
     #[test]
     fn proper_instantiation() {
@@ -552,12 +519,12 @@ mod tests {
             ticket_price: Uint128::new(10),
             stage_bid: stage_bid,
             stage_claim_airdrop: stage_claim_airdrop,
-            stage_claim_prize: stage_claim_prize
+            stage_claim_prize: stage_claim_prize,
         };
 
         let env = mock_env();
         let info = mock_info("addr0000", &[]);
-    
+
         // we can just call .unwrap() to assert this was a success
         let _res = instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
 
@@ -570,7 +537,6 @@ mod tests {
         let res = query(deps.as_ref(), env, QueryMsg::StagesInfo {}).unwrap();
         let stages_info: StagesInfoResponse = from_binary(&res).unwrap();
         assert_eq!(Scheduled::AtHeight(200_000), stages_info.stage_bid.start);
-
     }
 
     #[test]
@@ -585,7 +551,7 @@ mod tests {
             ticket_price: Uint128::new(10),
             stage_bid: stage_bid,
             stage_claim_airdrop: stage_claim_airdrop,
-            stage_claim_prize: stage_claim_prize
+            stage_claim_prize: stage_claim_prize,
         };
 
         let env = mock_env();
@@ -593,15 +559,16 @@ mod tests {
         let _res = instantiate(deps.as_mut(), env, info, msg).unwrap();
 
         // Update owner
+        let env = mock_env();
         let info = mock_info("owner0000", &[]);
         let msg = ExecuteMsg::UpdateConfig {
             new_owner: Some("owner0001".to_string()),
         };
 
         let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        // println!("{:?}", res);
         assert_eq!(0, res.messages.len());
 
-        /* 
         // it worked, let's query the state
         let res = query(deps.as_ref(), env, QueryMsg::Config {}).unwrap();
         let config: ConfigResponse = from_binary(&res).unwrap();
@@ -614,7 +581,76 @@ mod tests {
 
         let res = execute(deps.as_mut(), env, info, msg).unwrap_err();
         assert_eq!(res, ContractError::Unauthorized {});
-        */
     }
 
+    #[test]
+    fn bid() {
+        let mut deps = mock_dependencies();
+
+        let (stage_bid, stage_claim_airdrop, stage_claim_prize) = valid_stages();
+
+        let msg = InstantiateMsg {
+            owner: Some("owner0000".to_string()),
+            cw20_token_address: "random0000".to_string(),
+            ticket_price: Uint128::new(10),
+            stage_bid: stage_bid,
+            stage_claim_airdrop: stage_claim_airdrop,
+            stage_claim_prize: stage_claim_prize,
+        };
+
+        let env = mock_env();
+        let info = mock_info("owner0000", &[]);
+        let _res = instantiate(deps.as_mut(), env, info, msg).unwrap();
+
+        // Place a valid bid without change
+        let mut env = mock_env();
+        env.block.height = 200_001;
+
+        let info = mock_info(
+            "owner0001",
+            &[Coin {
+                denom: String::from("ujuno"),
+                amount: Uint128::new(10),
+            }],
+        );
+
+        let msg = ExecuteMsg::Bid {
+            allocation: Uint128::new(5_000_000),
+        };
+
+        let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        assert_eq!(0, res.messages.len());
+
+        // Place a valid bid with change
+        let info = mock_info(
+            "owner0001",
+            &[Coin {
+                denom: String::from("ujuno"),
+                amount: Uint128::new(13),
+            }],
+        );
+
+        let msg = ExecuteMsg::Bid {
+            allocation: Uint128::new(5_000_000),
+        };
+
+        let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        assert_eq!(1, res.messages.len());
+
+        // Place unvalid bid
+        let info = mock_info(
+            "owner0001",
+            &[Coin {
+                denom: String::from("ujuno"),
+                amount: Uint128::new(1),
+            }],
+        );
+
+        let msg = ExecuteMsg::Bid {
+            allocation: Uint128::new(5_000_000),
+        };
+
+        let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
+        assert_eq!(ContractError::TicketPriceNotPaid {}, res);
+    }
 }
