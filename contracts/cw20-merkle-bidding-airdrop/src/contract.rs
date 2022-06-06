@@ -89,9 +89,9 @@ pub fn execute(
         ExecuteMsg::ClaimAirdrop { amount, proof } => {
             execute_claim_airdrop(deps, env, info, amount, proof)
         }
-        ExecuteMsg::ClaimPrize { amount, proof } => !todo!(),
-        ExecuteMsg::WithdrawAirdrop { address } => !todo!(),
-        ExecuteMsg::WithdrawPrize { address } => !todo!(),
+        ExecuteMsg::ClaimPrize { amount, proof } => todo!(),
+        ExecuteMsg::WithdrawAirdrop { address } => todo!(),
+        ExecuteMsg::WithdrawPrize { address } => todo!(),
     }
 }
 
@@ -131,7 +131,6 @@ pub fn execute_bid(
     allocation: Uint128,
 ) -> Result<Response, ContractError> {
     let stage_bid = STAGE_BID.load(deps.storage)?;
-    let stage_bid_end = (stage_bid.start + stage_bid.duration)?;
 
     // Bid not allowed if bid phase didn't start yet.
     if !stage_bid.start.is_triggered(&_env.block) {
