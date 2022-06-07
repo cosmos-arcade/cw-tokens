@@ -2,18 +2,17 @@
 
 use std::borrow::BorrowMut;
 
-use cosmwasm_std::{coins, Addr, Coin, Empty, Uint128, BlockInfo, Timestamp, Event, Attribute};
+use cosmwasm_std::{coins, Addr, Coin, Empty, Uint128, BlockInfo, Event };
 
 use anyhow::Result as AnyResult;
 
-use cosmwasm_std::testing::{mock_env, MockApi, MockQuerier, MockStorage, MOCK_CONTRACT_ADDR};
-use cw_multi_test::{App, BankKeeper, Contract, ContractWrapper, Executor, next_block};
+use cw_multi_test::{App, Contract, ContractWrapper, Executor};
 use cw_utils::{Scheduled, Duration};
 
 use crate::ContractError;
 use crate::contract::{execute, instantiate, query};
 
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, StagesInfoResponse};
+use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, StagesInfoResponse, BidResponse};
 use crate::state::Stage;
 
 fn mock_app() -> App {
@@ -48,9 +47,9 @@ fn valid_stages() -> (Stage, Stage, Stage) {
 
 pub fn contract_cosmos_arcade() -> Box<dyn Contract<Empty>> {
     let contract = ContractWrapper::new(
-        crate::contract::execute,
-        crate::contract::instantiate,
-        crate::contract::query,
+        execute,
+        instantiate,
+        query,
     );
     Box::new(contract)
 }
@@ -88,6 +87,13 @@ fn get_stages_info(router: &App, contract_addr: &Addr) -> StagesInfoResponse {
     router
         .wrap()
         .query_wasm_smart(contract_addr, &QueryMsg::StagesInfo {})
+        .unwrap()
+}
+
+fn get_bid(router: &App, contract_addr: &Addr, address: String) -> BidResponse {
+    router
+        .wrap()
+        .query_wasm_smart(contract_addr, &QueryMsg::Bid { address })
         .unwrap()
 }
 
@@ -343,4 +349,90 @@ fn invalid_bid() {
         .unwrap_err();
 
     assert_eq!(ContractError::TicketPriceNotPaid {}, err.downcast().unwrap());
+}
+
+#[test]
+fn change_bid() {
+    let mut router = mock_app();
+
+    const NATIVE_TOKEN_DENOM: &str = "ujuno";
+    let owner = Addr::unchecked("owner");
+    let ticket_price = Uint128::new(10);
+    let funds = coins(1_000_000, NATIVE_TOKEN_DENOM);
+
+    router.borrow_mut().init_modules(|router, _, storage| {
+        router.bank.init_balance(storage, &owner, funds).unwrap()
+    });
+
+    let (stage_bid, stage_claim_airdrop, stage_claim_prize) = valid_stages();
+
+    let cosmos_arcade_addr = create_cosmos_arcade(
+        &mut router,
+        &owner,
+        ticket_price,
+        stage_bid.clone(),
+        stage_claim_airdrop.clone(),
+        stage_claim_prize.clone()
+    ).unwrap();
+
+    // Trigger bidding start
+    let current_block = router.block_info();
+    router.set_block(BlockInfo {
+        height: 200_001,
+        time: current_block.time,
+        chain_id: current_block.chain_id
+    });
+
+    let change_bid_msg = ExecuteMsg::ChangeBid {allocation: Uint128::new(2_000)};
+    
+    let err = router
+        .execute_contract(
+            owner.clone(),
+            cosmos_arcade_addr.clone(),
+            &change_bid_msg,
+            &[],
+        )
+        .unwrap_err();
+
+    assert_eq!(ContractError::BidNotPresent {}, err.downcast().unwrap());
+
+    let bid_msg = ExecuteMsg::Bid {allocation: Uint128::new(1_000)};
+
+    let valid_bid_no_change = Coin {
+        denom: NATIVE_TOKEN_DENOM.into(),
+        amount: Uint128::new(10)
+    };
+
+    let _res = router
+        .execute_contract(
+            owner.clone(),
+            cosmos_arcade_addr.clone(),
+            &bid_msg,
+            &[valid_bid_no_change],
+        )
+        .unwrap();
+
+    let info = get_bid(&router, &cosmos_arcade_addr, owner.to_string());
+    assert_eq!(
+        BidResponse {bid: Some(Uint128::new(1_000))},
+        info
+    );
+
+    let change_bid_msg = ExecuteMsg::ChangeBid {allocation: Uint128::new(2_000)};
+    
+    let _res = router
+        .execute_contract(
+            owner.clone(),
+            cosmos_arcade_addr.clone(),
+            &change_bid_msg,
+            &[],
+        )
+        .unwrap();
+
+    let info = get_bid(&router, &cosmos_arcade_addr, owner.to_string());
+
+    assert_eq!(
+        BidResponse {bid: Some(Uint128::new(2_000))},
+        info
+    );
 }

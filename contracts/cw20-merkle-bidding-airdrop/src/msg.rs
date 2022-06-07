@@ -72,8 +72,8 @@ pub enum ExecuteMsg {
 pub enum QueryMsg {
     Config {},
     StagesInfo {},
+    Bid { address: String },
     MerkleRoot {},
-    Bid {},
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
@@ -91,7 +91,7 @@ pub struct MerkleRootResponse {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct BidResponse {
-    bid: Uint128,
+    pub bid: Option<Uint128>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

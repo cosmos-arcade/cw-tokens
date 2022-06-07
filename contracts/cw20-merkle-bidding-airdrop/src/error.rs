@@ -52,8 +52,8 @@ pub enum ContractError {
     #[error("Cannot be placed more than one bid per address")]
     CannotBidMoreThanOnce {},
 
-    #[error("You didn't bid anything yet")]
-    NonExistentBid {},
+    #[error("A bid must be placed before changing it")]
+    BidNotPresent {},
 
     #[error("You didn't bid anything yet")]
     IncorrectBidValue {},

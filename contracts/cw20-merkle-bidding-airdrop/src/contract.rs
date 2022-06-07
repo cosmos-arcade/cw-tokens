@@ -195,13 +195,14 @@ pub fn execute_change_bid(
         return Err(ContractError::BidStageExpired {});
     }
 
-    // It will rise an error if info.sender dosn't have an active bid.
-    BIDS.load(deps.storage, &info.sender)?;
+    if !BIDS.has(deps.storage, &info.sender) {
+        return Err(ContractError::BidNotPresent {});
+    };
 
     BIDS.update(
         deps.storage,
         &info.sender,
-        |allocation: Option<Uint128>| -> StdResult<_> { Ok(allocation.unwrap()) },
+        |_allocation: Option<Uint128>| -> StdResult<Uint128> { Ok(allocation) },
     )?;
 
     let res = Response::new()
@@ -348,8 +349,8 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&query_config(deps)?),
         QueryMsg::StagesInfo {} => to_binary(&query_stages_info(deps)?),
+        QueryMsg::Bid { address } => to_binary(&query_bid(deps, address)?),
         QueryMsg::MerkleRoot {} => todo!(),
-        QueryMsg::Bid {} => todo!(),
     }
 }
 
@@ -370,6 +371,16 @@ pub fn query_stages_info(deps: Deps) -> StdResult<StagesInfoResponse> {
         stage_bid,
         stage_claim_airdrop,
         stage_claim_prize,
+    })
+}
+
+pub fn query_bid(deps: Deps, address: String) -> StdResult<BidResponse> {
+    let bid = BIDS.may_load(
+        deps.storage, 
+        &deps.api.addr_validate(&address)?
+    )?;
+    Ok(BidResponse {
+        bid
     })
 }
 
@@ -416,9 +427,8 @@ mod tests {
 
     use super::*;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
-    use cosmwasm_std::{from_binary, from_slice, CosmosMsg, SubMsg};
+    use cosmwasm_std::from_binary;
     use cw_utils::{Duration, Scheduled};
-    use serde::Deserialize;
 
     fn valid_stages() -> (Stage, Stage, Stage) {
         let stage_bid = Stage {
