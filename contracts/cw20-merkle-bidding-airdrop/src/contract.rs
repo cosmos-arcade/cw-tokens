@@ -16,7 +16,7 @@ use crate::msg::{
 };
 use crate::state::{
     Config, BIDS, CLAIM_AIRDROP, CONFIG, MERKLE_ROOT, STAGE_BID, STAGE_CLAIM_AIRDROP,
-    STAGE_CLAIM_PRIZE, TICKET_PRICE,
+    STAGE_CLAIM_PRIZE, TICKET_PRICE
 };
 
 // Version info, for migration info
@@ -141,13 +141,6 @@ pub fn execute_bid(
     let stage_bid_end = (stage_bid.start + stage_bid.duration)?;
     if stage_bid_end.is_triggered(&_env.block) {
         return Err(ContractError::BidStageExpired {});
-    }
-
-    let bid = BIDS.load(deps.storage, &info.sender)?;
-
-    //bid can't be less than 0
-    if bid < Uint128::zero() {
-        return Err(ContractError::IncorrectBidValue {});
     }
 
     let ticket_price = TICKET_PRICE.load(deps.storage)?;
@@ -374,9 +367,9 @@ pub fn query_stages_info(deps: Deps) -> StdResult<StagesInfoResponse> {
     let stage_claim_airdrop = STAGE_CLAIM_AIRDROP.load(deps.storage)?;
     let stage_claim_prize = STAGE_CLAIM_PRIZE.load(deps.storage)?;
     Ok(StagesInfoResponse {
-        stage_bid: stage_bid,
-        stage_claim_airdrop: stage_claim_airdrop,
-        stage_claim_prize: stage_claim_prize,
+        stage_bid,
+        stage_claim_airdrop,
+        stage_claim_prize,
     })
 }
 
@@ -419,10 +412,12 @@ fn get_bank_transfer_to_msg(recipient: &Addr, denom: &str, native_amount: Uint12
 
 #[cfg(test)]
 mod tests {
+    use crate::state::Stage;
+
     use super::*;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
     use cosmwasm_std::{from_binary, from_slice, CosmosMsg, SubMsg};
-    use cw_utils::Duration;
+    use cw_utils::{Duration, Scheduled};
     use serde::Deserialize;
 
     fn valid_stages() -> (Stage, Stage, Stage) {
@@ -521,77 +516,6 @@ mod tests {
 
     #[test]
     fn bid() {
-        let mut deps = mock_dependencies();
-
-        let (stage_bid, stage_claim_airdrop, stage_claim_prize) = valid_stages();
-
-        let msg = InstantiateMsg {
-            owner: Some("owner0000".to_string()),
-            cw20_token_address: "random0000".to_string(),
-            ticket_price: Uint128::new(10),
-            stage_bid: stage_bid,
-            stage_claim_airdrop: stage_claim_airdrop,
-            stage_claim_prize: stage_claim_prize,
-        };
-
-        let env = mock_env();
-        let info = mock_info("owner0000", &[]);
-        let _res = instantiate(deps.as_mut(), env, info, msg).unwrap();
-
-        // Place a valid bid without change
-        let mut env = mock_env();
-        env.block.height = 200_001;
-
-        let info = mock_info(
-            "owner0001",
-            &[Coin {
-                denom: String::from("ujuno"),
-                amount: Uint128::new(10),
-            }],
-        );
-
-        let msg = ExecuteMsg::Bid {
-            allocation: Uint128::new(5_000_000),
-        };
-
-        let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
-        assert_eq!(0, res.messages.len());
-
-        // Place a valid bid with change
-        let info = mock_info(
-            "owner0001",
-            &[Coin {
-                denom: String::from("ujuno"),
-                amount: Uint128::new(13),
-            }],
-        );
-
-        let msg = ExecuteMsg::Bid {
-            allocation: Uint128::new(5_000_000),
-        };
-
-        let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
-        assert_eq!(1, res.messages.len());
-
-        // Place unvalid bid
-        let info = mock_info(
-            "owner0001",
-            &[Coin {
-                denom: String::from("ujuno"),
-                amount: Uint128::new(1),
-            }],
-        );
-
-        let msg = ExecuteMsg::Bid {
-            allocation: Uint128::new(5_000_000),
-        };
-
-        let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
-        assert_eq!(ContractError::TicketPriceNotPaid {}, res);
-    }
-
-    #[test]
-    fn change_bid() {
         let mut deps = mock_dependencies();
 
         let (stage_bid, stage_claim_airdrop, stage_claim_prize) = valid_stages();
