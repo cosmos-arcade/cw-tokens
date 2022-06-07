@@ -393,11 +393,17 @@ pub fn execute_withdraw_airdrop(
 
     let total_amount = TOTAL_AIRDROP_AMOUNT.load(deps.storage)?;
     let claimed_amount = CLAIMED_AIRDROP_AMOUNT.load(deps.storage)?;
-    let amount = (total_amount - claimed_amount);
+    let amount = total_amount - claimed_amount;
 
-    get_cw20_transfer_to_msg(&address, &cfg.cw20_token_address, amount)?;
+    let mut transfer_msgs: Vec<CosmosMsg> = vec![];
+    transfer_msgs.push(get_cw20_transfer_to_msg(
+        &address,
+        &cfg.cw20_token_address,
+        amount,
+    )?);
 
     let res = Response::new()
+        .add_messages(transfer_msgs)
         .add_attribute("action", "withdraw_airdrop")
         .add_attribute("address", address)
         .add_attribute("amount", amount);
