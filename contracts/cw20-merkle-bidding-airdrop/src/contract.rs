@@ -16,7 +16,7 @@ use crate::msg::{
 };
 use crate::state::{
     Config, BIDS, CLAIM_AIRDROP, CONFIG, MERKLE_ROOT, STAGE_BID, STAGE_CLAIM_AIRDROP,
-    STAGE_CLAIM_PRIZE, TICKET_PRICE
+    STAGE_CLAIM_PRIZE, TICKET_PRICE, Stage
 };
 
 // Version info, for migration info
@@ -124,24 +124,30 @@ pub fn execute_update_config(
     Ok(Response::new().add_attribute("action", "update_config"))
 }
 
+pub fn check_if_bid_stage(stage_bid: Stage, env: Env) -> Result<(), ContractError>{
+    // Bid not allowed if bid phase didn't start yet.
+    if !stage_bid.start.is_triggered(&env.block) {
+        return Err(ContractError::BidStageNotBegun {});
+    } 
+
+    // Bid not allowed if bid phase is ended.
+    let stage_bid_end = (stage_bid.start + stage_bid.duration)?;
+    if stage_bid_end.is_triggered(&env.block) {
+        return Err(ContractError::BidStageExpired {});
+    }
+
+    Ok(())
+}
+
 pub fn execute_bid(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     allocation: Uint128,
 ) -> Result<Response, ContractError> {
     let stage_bid = STAGE_BID.load(deps.storage)?;
 
-    // Bid not allowed if bid phase didn't start yet.
-    if !stage_bid.start.is_triggered(&_env.block) {
-        return Err(ContractError::BidStageNotBegun {});
-    }
-
-    // Bid not allowed if bid phase is ended.
-    let stage_bid_end = (stage_bid.start + stage_bid.duration)?;
-    if stage_bid_end.is_triggered(&_env.block) {
-        return Err(ContractError::BidStageExpired {});
-    }
+    check_if_bid_stage(stage_bid, env)?;
 
     let ticket_price = TICKET_PRICE.load(deps.storage)?;
 
@@ -178,22 +184,13 @@ pub fn execute_bid(
 
 pub fn execute_change_bid(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     allocation: Uint128,
 ) -> Result<Response, ContractError> {
     let stage_bid = STAGE_BID.load(deps.storage)?;
 
-    // Change bid not allowed if bid phase didn't start yet.
-    if !stage_bid.start.is_triggered(&_env.block) {
-        return Err(ContractError::BidStageNotBegun {});
-    }
-
-    // Change bid not allowed if bid phase is ended.
-    let stage_bid_end = (stage_bid.start + stage_bid.duration)?;
-    if stage_bid_end.is_triggered(&_env.block) {
-        return Err(ContractError::BidStageExpired {});
-    }
+    check_if_bid_stage(stage_bid, env)?;
 
     if !BIDS.has(deps.storage, &info.sender) {
         return Err(ContractError::BidNotPresent {});
@@ -214,30 +211,15 @@ pub fn execute_change_bid(
 
 pub fn execute_remove_bid(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
 ) -> Result<Response, ContractError> {
     let cfg = CONFIG.load(deps.storage)?;
 
-    // if owner set validate, otherwise unauthorized
-    let owner = cfg.owner.ok_or(ContractError::Unauthorized {})?;
-    if info.sender != owner {
-        return Err(ContractError::Unauthorized {});
-    }
-
     let ticket_price = TICKET_PRICE.load(deps.storage)?;
     let stage_bid = STAGE_BID.load(deps.storage)?;
 
-    //you can't remove bid if Bid Phase didn't start yet
-    if !stage_bid.start.is_triggered(&_env.block) {
-        return Err(ContractError::BidStageNotBegun {});
-    }
-
-    //you can't remove bid if Bid Phase is ended
-    let stage_bid_end = (stage_bid.start + stage_bid.duration)?;
-    if stage_bid_end.is_triggered(&_env.block) {
-        return Err(ContractError::BidStageExpired {});
-    }
+    check_if_bid_stage(stage_bid, env)?;
 
     BIDS.remove(deps.storage, &info.sender);
 
