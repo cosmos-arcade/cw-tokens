@@ -55,3 +55,9 @@ pub const CLAIM_PRIZE: Map<&Addr, bool> = Map::new(CLAIM_PRIZE_PREFIX);
 /// Storage to manage the bid of each addres.
 pub const BIDS_PREFIX: &str = "bids";
 pub const BIDS: Map<&Addr, Uint128> = Map::new("bids");
+
+pub const CLAIMED_AIRDROP_AMOUNT_PREFIX: &str = "claimed_amount";
+pub const CLAIMED_AIRDROP_AMOUNT: Item<Uint128> = Item::new(CLAIMED_AIRDROP_AMOUNT_PREFIX);
+
+pub const TOTAL_AIRDROP_AMOUNT_PREFIX: &str = "total_amount";
+pub const TOTAL_AIRDROP_AMOUNT: Item<Uint128> = Item::new(TOTAL_AIRDROP_AMOUNT_PREFIX);

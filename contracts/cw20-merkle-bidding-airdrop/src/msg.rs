@@ -2,7 +2,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::state::Stage;
-use cosmwasm_std::Uint128;
+use cosmwasm_std::{Addr, Uint128};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
@@ -45,6 +45,7 @@ pub enum ExecuteMsg {
     RegisterMerkleRoot {
         /// MerkleRoot is hex-encoded merkle root.
         merkle_root: String,
+        total_amount: Option<Uint128>,
     },
     // Claim does not check if contract has enough funds, owner must ensure it.
     /// Claim airdrop allocation.
@@ -59,7 +60,7 @@ pub enum ExecuteMsg {
     },
     // Withdraw the remaining Airdrop tokens after expire time (only owner)
     WithdrawAirdrop {
-        address: String,
+        address: Addr,
     },
     // Withdraw the remaining Prize tokens after expire time (only owner)
     WithdrawPrize {

@@ -15,8 +15,8 @@ use crate::msg::{
     QueryMsg, StagesInfoResponse,
 };
 use crate::state::{
-    Config, BIDS, CLAIM_AIRDROP, CONFIG, MERKLE_ROOT, STAGE_BID, STAGE_CLAIM_AIRDROP,
-    STAGE_CLAIM_PRIZE, TICKET_PRICE,
+    Config, BIDS, CLAIMED_AIRDROP_AMOUNT, CLAIM_AIRDROP, CONFIG, MERKLE_ROOT, STAGE_BID,
+    STAGE_CLAIM_AIRDROP, STAGE_CLAIM_PRIZE, TICKET_PRICE, TOTAL_AIRDROP_AMOUNT,
 };
 
 // Version info, for migration info
@@ -85,12 +85,17 @@ pub fn execute(
         ExecuteMsg::Bid { allocation } => execute_bid(deps, env, info, allocation),
         ExecuteMsg::ChangeBid { allocation } => execute_change_bid(deps, env, info, allocation),
         ExecuteMsg::RemoveBid {} => execute_remove_bid(deps, env, info),
-        ExecuteMsg::RegisterMerkleRoot { merkle_root } => todo!(),
+        ExecuteMsg::RegisterMerkleRoot {
+            merkle_root,
+            total_amount,
+        } => execute_register_merkle_root(deps, env, info, merkle_root, total_amount),
         ExecuteMsg::ClaimAirdrop { amount, proof } => {
             execute_claim_airdrop(deps, env, info, amount, proof)
         }
         ExecuteMsg::ClaimPrize { amount, proof } => todo!(),
-        ExecuteMsg::WithdrawAirdrop { address } => todo!(),
+        ExecuteMsg::WithdrawAirdrop { address } => {
+            execute_withdraw_airdrop(deps, env, info, &address)
+        }
         ExecuteMsg::WithdrawPrize { address } => todo!(),
     }
 }
@@ -176,7 +181,7 @@ pub fn execute_bid(
     BIDS.save(deps.storage, &info.sender, &allocation)?;
 
     let res = Response::new()
-    .add_messages(transfer_msg)
+        .add_messages(transfer_msg)
         .add_attribute("action", "bid")
         .add_attribute("player", info.sender)
         .add_attribute("allocation", allocation);
@@ -251,8 +256,41 @@ pub fn execute_remove_bid(
 
     let res = Response::new()
         .add_attribute("action", "remove_bid")
-        .add_attribute("player", info.sender);
+        .add_attribute("player", info.sender)
+        .add_attribute("ticket_price_payback", ticket_price);
     Ok(res)
+}
+
+pub fn execute_register_merkle_root(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    merkle_root: String,
+    total_amount: Option<Uint128>,
+) -> Result<Response, ContractError> {
+    let cfg = CONFIG.load(deps.storage)?;
+
+    // if owner set validate, otherwise unauthorized
+    let owner = cfg.owner.ok_or(ContractError::Unauthorized {})?;
+    if info.sender != owner {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    // check merkle root length
+    let mut root_buf: [u8; 32] = [0; 32];
+    hex::decode_to_slice(&merkle_root, &mut root_buf)?;
+
+    MERKLE_ROOT.save(deps.storage, &merkle_root)?;
+
+    // save total airdropped amount
+    let amount = total_amount.unwrap_or_else(Uint128::zero);
+    TOTAL_AIRDROP_AMOUNT.save(deps.storage, &amount)?;
+
+    Ok(Response::new().add_attributes(vec![
+        attr("action", "register_merkle_root"),
+        attr("merkle_root", merkle_root),
+        attr("total_amount", amount),
+    ]))
 }
 
 pub fn execute_claim_airdrop(
@@ -272,20 +310,20 @@ pub fn execute_claim_airdrop(
     // throw an error if airdrop claim stage is expired
     let stage_claim_airdrop_end = (stage_claim_aidrop.start + stage_claim_aidrop.duration)?;
     if stage_claim_airdrop_end.is_triggered(&_env.block) {
-        return Err(ContractError::ClaimAirdropStageExpired {})
+        return Err(ContractError::ClaimAirdropStageExpired {});
     }
 
-    // verify not claimed
+    // verify that user did not claimed already
     let claimed = CLAIM_AIRDROP.may_load(deps.storage, &info.sender)?;
     if claimed.is_some() {
-        return Err(ContractError::Claimed {});
+        return Err(ContractError::AlreadyClaimed {});
     }
 
     let config = CONFIG.load(deps.storage)?;
     let merkle_root = MERKLE_ROOT.load(deps.storage)?;
 
     let user_input = format!("{}{}", info.sender, amount);
-    let hash: [u8; 32] = sha2::Sha256::digest(user_input.as_bytes())
+    let hash = sha2::Sha256::digest(user_input.as_bytes())
         .as_slice()
         .try_into()
         .map_err(|_| ContractError::WrongLength {})?;
@@ -310,6 +348,11 @@ pub fn execute_claim_airdrop(
     // Update claim index
     CLAIM_AIRDROP.save(deps.storage, &info.sender, &true)?;
 
+    // Update claimed amount to reflect
+    let mut claimed_amount = CLAIMED_AIRDROP_AMOUNT.load(deps.storage)?;
+    claimed_amount += amount;
+    CLAIMED_AIRDROP_AMOUNT.save(deps.storage, &claimed_amount)?;
+
     let res = Response::new()
         .add_message(WasmMsg::Execute {
             contract_addr: config.cw20_token_address.to_string(),
@@ -322,6 +365,43 @@ pub fn execute_claim_airdrop(
         .add_attribute("action", "claim_airdrop")
         .add_attribute("address", info.sender)
         .add_attribute("amount", amount);
+    Ok(res)
+}
+
+pub fn execute_withdraw_airdrop(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    address: &Addr,
+) -> Result<Response, ContractError> {
+    // authorize owner
+    let cfg = CONFIG.load(deps.storage)?;
+    // If owner not present you can't withdraw
+    let owner = cfg.owner.ok_or(ContractError::Unauthorized {})?;
+    // Just the owner can withdraw
+    if info.sender != owner {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    let stage_claim_airdrop = STAGE_CLAIM_AIRDROP.load(deps.storage)?;
+    let stage_claim_airdrop_end = (stage_claim_airdrop.start + stage_claim_airdrop.duration)?;
+
+    // if Stage Claim Airdrop is not over yet, can't withdraw
+    if !stage_claim_airdrop_end.is_triggered(&_env.block) {
+        return Err(ContractError::ClaimAirdropStageNotFinished {});
+    }
+
+    let total_amount = TOTAL_AIRDROP_AMOUNT.load(deps.storage)?;
+    let claimed_amount = CLAIMED_AIRDROP_AMOUNT.load(deps.storage)?;
+    let amount = (total_amount - claimed_amount);
+
+    get_cw20_transfer_to_msg(&address, &cfg.cw20_token_address, amount)?;
+
+    let res = Response::new()
+        .add_attribute("action", "withdraw_airdrop")
+        .add_attribute("address", address)
+        .add_attribute("amount", amount);
+
     Ok(res)
 }
 
@@ -348,6 +428,25 @@ fn bank_transfer_to_msg(recipient: &Addr, amount: Uint128, denom: &str) -> Cosmo
 
     let transfer_bank_cosmos_msg: CosmosMsg = transfer_bank_msg.into();
     transfer_bank_cosmos_msg
+}
+
+fn get_cw20_transfer_to_msg(
+    recipient: &Addr,
+    token_addr: &Addr,
+    token_amount: Uint128,
+) -> StdResult<CosmosMsg> {
+    // create transfer cw20 msg
+    let transfer_cw20_msg = Cw20ExecuteMsg::Transfer {
+        recipient: recipient.into(),
+        amount: token_amount,
+    };
+    let exec_cw20_transfer = WasmMsg::Execute {
+        contract_addr: token_addr.into(),
+        msg: to_binary(&transfer_cw20_msg)?,
+        funds: vec![],
+    };
+    let cw20_transfer_cosmos_msg: CosmosMsg = exec_cw20_transfer.into();
+    Ok(cw20_transfer_cosmos_msg)
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -660,5 +759,4 @@ mod tests {
         let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
         assert_eq!(ContractError::TicketPriceNotPaid {}, res);
     }
-
 }
