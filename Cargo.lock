@@ -378,6 +378,7 @@ dependencies = [
 name = "cw20-merkle-bidding-airdrop"
 version = "0.12.1"
 dependencies = [
+ "anyhow",
  "cosmwasm-schema",
  "cosmwasm-std",
  "cw-multi-test",

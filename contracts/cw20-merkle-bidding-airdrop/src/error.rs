@@ -46,8 +46,11 @@ pub enum ContractError {
     #[error("Bid stage has expired")]
     BidStageExpired {},
 
-    #[error("You must pay ticket price to bid")]
+    #[error("Fund sent insufficent for paying the bid price")]
     TicketPriceNotPaid {},
+
+    #[error("Cannot be placed more than one bid per address")]
+    CannotBidMoreThanOnce {},
 
     #[error("You didn't bid anything yet")]
     NonExistentBid {},
