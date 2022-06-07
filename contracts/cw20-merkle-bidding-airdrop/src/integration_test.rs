@@ -516,3 +516,50 @@ fn remove_bid() {
     let balance: Coin = bank_balance(&mut router, &owner, NATIVE_TOKEN_DENOM.to_string());
     assert_eq!(Uint128::new(1_000_000), balance.amount);
 }
+
+#[test]
+fn register_merkle_root() {
+    let mut router = mock_app();
+
+    const NATIVE_TOKEN_DENOM: &str = "ujuno";
+    let owner = Addr::unchecked("owner");
+    let ticket_price = Uint128::new(10);
+    let funds = coins(1_000_000, NATIVE_TOKEN_DENOM);
+
+    router.borrow_mut().init_modules(|router, _, storage| {
+        router.bank.init_balance(storage, &owner, funds).unwrap()
+    });
+
+    let (stage_bid, stage_claim_airdrop, stage_claim_prize) = valid_stages();
+
+    let cosmos_arcade_addr = create_cosmos_arcade(
+        &mut router,
+        &owner,
+        ticket_price,
+        stage_bid.clone(),
+        stage_claim_airdrop.clone(),
+        stage_claim_prize.clone()
+    ).unwrap();
+
+    // Trigger airdrop claim start
+    let current_block = router.block_info();
+    router.set_block(BlockInfo {
+        height: 201_001,
+        time: current_block.time,
+        chain_id: current_block.chain_id
+    });
+
+    let remove_bid_msg = ExecuteMsg::RemoveBid {};
+    
+    let err = router
+        .execute_contract(
+            owner.clone(),
+            cosmos_arcade_addr.clone(),
+            &remove_bid_msg,
+            &[],
+        )
+        .unwrap_err();
+
+    assert_eq!(ContractError::BidNotPresent {}, err.downcast().unwrap());
+
+}

@@ -1,8 +1,8 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_binary, Addr, Binary, BlockInfo, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo,
-    Response, StdResult, Timestamp, Uint128, WasmMsg,
+    attr, to_binary, Addr, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo,
+    Response, StdResult, Uint128, WasmMsg,
 };
 use cw2::{get_contract_version, set_contract_version};
 use cw20::Cw20ExecuteMsg;
@@ -11,7 +11,7 @@ use std::convert::TryInto;
 
 use crate::error::ContractError;
 use crate::msg::{
-    BidResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, MerkleRootResponse, MigrateMsg,
+    BidResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, MigrateMsg,
     QueryMsg, StagesInfoResponse,
 };
 use crate::state::{
@@ -31,7 +31,9 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
-
+    // ======================================================================================
+    // Contract configuration
+    // ======================================================================================
     // If owner not in message, set it as sender.
     let owner = msg
         .owner
@@ -42,28 +44,36 @@ pub fn instantiate(
         cw20_token_address: deps.api.addr_validate(&msg.cw20_token_address)?,
     };
 
+    // ======================================================================================
+    // Stages validity checks
+    // ======================================================================================
     let stage_bid_end = (msg.stage_bid.start + msg.stage_bid.duration)?;
     let stage_claim_airdrop_end =
         (msg.stage_claim_airdrop.start + msg.stage_claim_airdrop.duration)?;
 
-    // Bid stage have to start after contract instantiation.
+    // Bid stage haa to start after contract instantiation.
     if msg.stage_bid.start.is_triggered(&env.block) {
         return Err(ContractError::BidStartPassed {});
     }
 
+    // Airdrop claim stage has to start after bidding stage end.
     if stage_bid_end > msg.stage_claim_airdrop.start {
         let first = String::from("bid");
         let second = String::from("Claim airdrop");
         return Err(ContractError::StagesOverlap { first, second });
     }
 
+    // Game prize claim has to start after airdrop claim stage end.
     if stage_claim_airdrop_end > msg.stage_claim_prize.start {
         let first = String::from("claim aidrop");
         let second = String::from("Claim prize");
         return Err(ContractError::StagesOverlap { first, second });
     }
 
-    // Save contract's state after validity check avoid useless computation.
+    // ======================================================================================
+    // Contract initial state
+    // ======================================================================================
+    // Saving contract's state after validity checks avoid useless computation.
     CONFIG.save(deps.storage, &config)?;
     STAGE_BID.save(deps.storage, &msg.stage_bid)?;
     STAGE_CLAIM_AIRDROP.save(deps.storage, &msg.stage_claim_airdrop)?;
@@ -81,22 +91,35 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::UpdateConfig { new_owner } => execute_update_config(deps, env, info, new_owner),
-        ExecuteMsg::Bid { allocation } => execute_bid(deps, env, info, allocation),
-        ExecuteMsg::ChangeBid { allocation } => execute_change_bid(deps, env, info, allocation),
-        ExecuteMsg::RemoveBid {} => execute_remove_bid(deps, env, info),
+        ExecuteMsg::UpdateConfig {
+            new_owner
+        } => execute_update_config(deps, env, info, new_owner),
+        ExecuteMsg::Bid {
+            allocation
+        } => execute_bid(deps, env, info, allocation),
+        ExecuteMsg::ChangeBid {
+            allocation 
+        } => execute_change_bid(deps, env, info, allocation),
+        ExecuteMsg::RemoveBid {
+        } => execute_remove_bid(deps, env, info),
         ExecuteMsg::RegisterMerkleRoot {
             merkle_root,
             total_amount,
         } => execute_register_merkle_root(deps, env, info, merkle_root, total_amount),
-        ExecuteMsg::ClaimAirdrop { amount, proof } => {
-            execute_claim_airdrop(deps, env, info, amount, proof)
-        }
-        ExecuteMsg::ClaimPrize { amount, proof } => todo!(),
-        ExecuteMsg::WithdrawAirdrop { address } => {
-            execute_withdraw_airdrop(deps, env, info, &address)
-        }
-        ExecuteMsg::WithdrawPrize { address } => todo!(),
+        ExecuteMsg::ClaimAirdrop {
+            amount,
+            proof
+        } => execute_claim_airdrop(deps, env, info, amount, proof),
+        ExecuteMsg::ClaimPrize {
+            amount,
+            proof
+        } => todo!(),
+        ExecuteMsg::WithdrawAirdrop {
+            address
+        } => execute_withdraw_airdrop(deps, env, info, &address),
+        ExecuteMsg::WithdrawPrize {
+            address
+        } => todo!(),
     }
 }
 
@@ -106,16 +129,14 @@ pub fn execute_update_config(
     info: MessageInfo,
     new_owner: Option<String>,
 ) -> Result<Response, ContractError> {
-    // authorize owner
     let cfg = CONFIG.load(deps.storage)?;
-    // If owner not present the config cannot be updated
+    // If owner not set the config cannot be updated.
     let owner = cfg.owner.ok_or(ContractError::Unauthorized {})?;
-    // Just the owner can update the config
+    // Just the owner can update the config.
     if info.sender != owner {
         return Err(ContractError::Unauthorized {});
     }
 
-    // if owner some validated to addr, otherwise set to none
     let mut tmp_owner = None;
     if let Some(addr) = new_owner {
         tmp_owner = Some(deps.api.addr_validate(&addr)?)
@@ -130,12 +151,12 @@ pub fn execute_update_config(
 }
 
 pub fn check_if_bid_stage(stage_bid: Stage, env: Env) -> Result<(), ContractError> {
-    // Bid not allowed if bid phase didn't start yet.
+    // Bid not allowed if the bidding phase has not started.
     if !stage_bid.start.is_triggered(&env.block) {
         return Err(ContractError::BidStageNotBegun {});
     }
 
-    // Bid not allowed if bid phase is ended.
+    // Bid not allowed if the bidding phase has ended.
     let stage_bid_end = (stage_bid.start + stage_bid.duration)?;
     if stage_bid_end.is_triggered(&env.block) {
         return Err(ContractError::BidStageExpired {});
@@ -156,6 +177,7 @@ pub fn execute_bid(
 
     let ticket_price = TICKET_PRICE.load(deps.storage)?;
 
+    // If a bid is already present for the sender, no other bids can be placed.
     if BIDS.has(deps.storage, &info.sender) {
         return Err(ContractError::CannotBidMoreThanOnce {});
     };
@@ -176,7 +198,6 @@ pub fn execute_bid(
         ))
     }
 
-    // Save address and bid
     BIDS.save(deps.storage, &info.sender, &allocation)?;
 
     let res = Response::new()
@@ -197,6 +218,7 @@ pub fn execute_change_bid(
 
     check_if_bid_stage(stage_bid, env)?;
 
+    // If a previous bid doesn't exists for the sender, nothing can be changed.
     if !BIDS.has(deps.storage, &info.sender) {
         return Err(ContractError::BidNotPresent {});
     };
@@ -225,12 +247,15 @@ pub fn execute_remove_bid(
 
     let ticket_price = TICKET_PRICE.load(deps.storage)?;
 
+    // Vector for a possible refund message.
     let mut transfer_msg: Vec<CosmosMsg> = vec![];
+
+    // IF: check if a bid for the sender is not present.
+    // ELSE: if the bid is present, remove it and send back the ticket price to the sender.
     if !BIDS.has(deps.storage, &info.sender) {
         return Err(ContractError::BidNotPresent {});
     } else {
         BIDS.remove(deps.storage, &info.sender);
-
         transfer_msg.push(get_bank_transfer_to_msg(
             &info.sender,
             "ujuno",
@@ -253,23 +278,23 @@ pub fn execute_register_merkle_root(
     merkle_root: String,
     total_amount: Option<Uint128>,
 ) -> Result<Response, ContractError> {
+    // Just the contract owner can load the Merkle root.
     let cfg = CONFIG.load(deps.storage)?;
-
-    // if owner set validate, otherwise unauthorized
     let owner = cfg.owner.ok_or(ContractError::Unauthorized {})?;
     if info.sender != owner {
         return Err(ContractError::Unauthorized {});
     }
 
-    // check merkle root length
+    // Check merkle root length.
     let mut root_buf: [u8; 32] = [0; 32];
     hex::decode_to_slice(&merkle_root, &mut root_buf)?;
 
     MERKLE_ROOT.save(deps.storage, &merkle_root)?;
 
-    // save total airdropped amount
+    // Save total airdropped amount.
     let amount = total_amount.unwrap_or_else(Uint128::zero);
     TOTAL_AIRDROP_AMOUNT.save(deps.storage, &amount)?;
+    CLAIMED_AIRDROP_AMOUNT.save(deps.storage, &Uint128::zero())?;
 
     Ok(Response::new().add_attributes(vec![
         attr("action", "register_merkle_root"),
