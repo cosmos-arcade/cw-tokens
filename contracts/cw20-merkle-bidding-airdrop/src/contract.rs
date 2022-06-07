@@ -175,7 +175,7 @@ pub fn execute_bid(
     BIDS.save(deps.storage, &info.sender, &allocation)?;
 
     let res = Response::new()
-    .add_messages(transfer_msg)
+        .add_messages(transfer_msg)
         .add_attribute("action", "bid")
         .add_attribute("player", info.sender)
         .add_attribute("allocation", allocation);
@@ -214,18 +214,27 @@ pub fn execute_remove_bid(
     env: Env,
     info: MessageInfo,
 ) -> Result<Response, ContractError> {
-    let cfg = CONFIG.load(deps.storage)?;
-
-    let ticket_price = TICKET_PRICE.load(deps.storage)?;
     let stage_bid = STAGE_BID.load(deps.storage)?;
 
     check_if_bid_stage(stage_bid, env)?;
 
-    BIDS.remove(deps.storage, &info.sender);
+    let ticket_price = TICKET_PRICE.load(deps.storage)?;
 
-    bank_transfer_to_msg(&info.sender, ticket_price, "ujuno");
+    let mut transfer_msg: Vec<CosmosMsg> = vec![];
+    if !BIDS.has(deps.storage, &info.sender) {
+        return Err(ContractError::BidNotPresent {});
+    } else {
+        BIDS.remove(deps.storage, &info.sender);
+
+        transfer_msg.push(get_bank_transfer_to_msg(
+            &info.sender,
+            "ujuno",
+            ticket_price,
+        ));
+    }
 
     let res = Response::new()
+        .add_messages(transfer_msg) 
         .add_attribute("action", "remove_bid")
         .add_attribute("player", info.sender);
     Ok(res)
@@ -489,7 +498,6 @@ mod tests {
         };
 
         let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
-        // println!("{:?}", res);
         assert_eq!(0, res.messages.len());
 
         // it worked, let's query the state
@@ -504,77 +512,6 @@ mod tests {
 
         let res = execute(deps.as_mut(), env, info, msg).unwrap_err();
         assert_eq!(res, ContractError::Unauthorized {});
-    }
-
-    #[test]
-    fn bid() {
-        let mut deps = mock_dependencies();
-
-        let (stage_bid, stage_claim_airdrop, stage_claim_prize) = valid_stages();
-
-        let msg = InstantiateMsg {
-            owner: Some("owner0000".to_string()),
-            cw20_token_address: "random0000".to_string(),
-            ticket_price: Uint128::new(10),
-            stage_bid: stage_bid,
-            stage_claim_airdrop: stage_claim_airdrop,
-            stage_claim_prize: stage_claim_prize,
-        };
-
-        let env = mock_env();
-        let info = mock_info("owner0000", &[]);
-        let _res = instantiate(deps.as_mut(), env, info, msg).unwrap();
-
-        // Place a valid bid without change
-        let mut env = mock_env();
-        env.block.height = 200_001;
-
-        let info = mock_info(
-            "owner0001",
-            &[Coin {
-                denom: String::from("ujuno"),
-                amount: Uint128::new(10),
-            }],
-        );
-
-        let msg = ExecuteMsg::Bid {
-            allocation: Uint128::new(5_000_000),
-        };
-
-        let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
-        assert_eq!(0, res.messages.len());
-
-        // Place a valid bid with change
-        let info = mock_info(
-            "owner0001",
-            &[Coin {
-                denom: String::from("ujuno"),
-                amount: Uint128::new(13),
-            }],
-        );
-
-        let msg = ExecuteMsg::Bid {
-            allocation: Uint128::new(5_000_000),
-        };
-
-        let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
-        assert_eq!(1, res.messages.len());
-
-        // Place unvalid bid
-        let info = mock_info(
-            "owner0001",
-            &[Coin {
-                denom: String::from("ujuno"),
-                amount: Uint128::new(1),
-            }],
-        );
-
-        let msg = ExecuteMsg::Bid {
-            allocation: Uint128::new(5_000_000),
-        };
-
-        let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap_err();
-        assert_eq!(ContractError::TicketPriceNotPaid {}, res);
     }
 
 }
