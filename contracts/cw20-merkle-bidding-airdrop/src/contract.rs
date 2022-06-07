@@ -145,9 +145,9 @@ pub fn execute_bid(
 
     let ticket_price = TICKET_PRICE.load(deps.storage)?;
 
-    // TODO: Controllare se bid già esistente
-
-    // TODO: Bid minori di zero non vanno bene
+    if BIDS.has(deps.storage, &info.sender) {
+        return Err(ContractError::CannotBidMoreThanOnce { });
+    };
 
     // If ticket price not paid, bid is not allowed.
     let fund_sent = get_amount_for_denom(&info.funds, "ujuno");
