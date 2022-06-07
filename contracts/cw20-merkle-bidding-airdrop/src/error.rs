@@ -17,7 +17,7 @@ pub enum ContractError {
     InvalidInput {},
 
     #[error("Already claimed")]
-    Claimed {},
+    AlreadyClaimed {},
 
     #[error("Wrong length")]
     WrongLength {},
@@ -30,6 +30,9 @@ pub enum ContractError {
 
     #[error("Claim Airdrop stage has expired")]
     ClaimAirdropStageExpired {},
+
+    #[error("Claim Airdrop stage is not over yet")]
+    ClaimAirdropStageNotFinished {},
 
     #[error("Claim Prize stage has expired")]
     ClaimPrizeStageExpired {},
