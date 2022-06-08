@@ -12,7 +12,7 @@ use std::convert::TryInto;
 use crate::error::ContractError;
 use crate::msg::{
     BidResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, MigrateMsg,
-    QueryMsg, StagesInfoResponse,
+    QueryMsg, StagesInfoResponse, MerkleRootResponse,
 };
 use crate::state::{
     Config, Stage, BIDS, CLAIMED_AIRDROP_AMOUNT, CLAIM_AIRDROP, CONFIG, MERKLE_ROOT, STAGE_BID,
@@ -285,6 +285,8 @@ pub fn execute_register_merkle_root(
         return Err(ContractError::Unauthorized {});
     }
 
+    // TODO: check sul periodo in cui poter depositare la merkle root.
+
     // Check merkle root length.
     let mut root_buf: [u8; 32] = [0; 32];
     hex::decode_to_slice(&merkle_root, &mut root_buf)?;
@@ -465,6 +467,9 @@ fn get_cw20_transfer_to_msg(
     Ok(cw20_transfer_cosmos_msg)
 }
 
+// ======================================================================================
+// Queries
+// ======================================================================================
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
@@ -500,19 +505,22 @@ pub fn query_bid(deps: Deps, address: String) -> StdResult<BidResponse> {
     Ok(BidResponse { bid })
 }
 
-/*
 pub fn query_merkle_root(deps: Deps) -> StdResult<MerkleRootResponse> {
     let merkle_root = MERKLE_ROOT.load(deps.storage)?;
-    let stage_bid = STAGE_BID.load(deps.storage)?;
-    let stage_claim_airdrop = STAGE_CLAIM_AIRDROP.may_load(deps.storage)?;
-    let stage_claim_prize = STAGE_CLAIM_PRIZE.load(deps.storage)?;
+    let total_amount = TOTAL_AIRDROP_AMOUNT.load(deps.storage)?;
 
-    let resp = MerkleRootResponse {merkle_root};
+
+    let resp = MerkleRootResponse {
+        merkle_root,
+        total_amount
+    };
 
     Ok(resp)
 }
-*/
 
+// ======================================================================================
+// Utils
+// ======================================================================================
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     let version = get_contract_version(deps.storage)?;

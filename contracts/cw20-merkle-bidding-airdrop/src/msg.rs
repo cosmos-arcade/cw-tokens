@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 use crate::state::Stage;
 use cosmwasm_std::{Addr, Uint128};
 
+// ======================================================================================
+// Entrypoints data structures
+// ======================================================================================
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct InstantiateMsg {
     /// Owner if none set to info.sender.
@@ -77,6 +80,12 @@ pub enum QueryMsg {
     MerkleRoot {},
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct MigrateMsg {}
+
+// ======================================================================================
+// Responses data structures
+// ======================================================================================
 #[derive(Serialize, Deserialize, Clone, PartialEq, JsonSchema, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct ConfigResponse {
@@ -85,9 +94,10 @@ pub struct ConfigResponse {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct MerkleRootResponse {
-    /// MerkleRoot is hex-encoded merkle root.
-    pub merkle_root: String,
+pub struct StagesInfoResponse {
+    pub stage_bid: Stage,
+    pub stage_claim_airdrop: Stage,
+    pub stage_claim_prize: Stage,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -95,12 +105,11 @@ pub struct BidResponse {
     pub bid: Option<Uint128>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct MigrateMsg {}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct StagesInfoResponse {
-    pub stage_bid: Stage,
-    pub stage_claim_airdrop: Stage,
-    pub stage_claim_prize: Stage,
+pub struct MerkleRootResponse {
+    /// MerkleRoot is hex-encoded merkle root.
+    pub merkle_root: String,
+    pub total_amount: Uint128
 }
+
