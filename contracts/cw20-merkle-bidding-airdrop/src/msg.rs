@@ -75,7 +75,7 @@ pub enum ExecuteMsg {
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
     Config {},
-    StagesInfo {},
+    Stages {},
     Bid { address: String },
     MerkleRoot {},
 }
@@ -94,7 +94,7 @@ pub struct ConfigResponse {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct StagesInfoResponse {
+pub struct StagesResponse {
     pub stage_bid: Stage,
     pub stage_claim_airdrop: Stage,
     pub stage_claim_prize: Stage,

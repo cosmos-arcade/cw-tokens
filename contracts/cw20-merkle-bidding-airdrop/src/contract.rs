@@ -1,8 +1,8 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_binary, Addr, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo,
-    Response, StdResult, Uint128, WasmMsg,
+    attr, to_binary, Addr, Binary, Coin, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Response,
+    StdResult, Uint128, WasmMsg,
 };
 use cw2::{get_contract_version, set_contract_version};
 use cw20::Cw20ExecuteMsg;
@@ -11,8 +11,8 @@ use std::convert::TryInto;
 
 use crate::error::ContractError;
 use crate::msg::{
-    BidResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, MigrateMsg,
-    QueryMsg, StagesInfoResponse, MerkleRootResponse,
+    BidResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, MerkleRootResponse, MigrateMsg,
+    QueryMsg, StagesResponse,
 };
 use crate::state::{
     Config, Stage, BIDS, CLAIMED_AIRDROP_AMOUNT, CLAIM_AIRDROP, CONFIG, MERKLE_ROOT, STAGE_BID,
@@ -98,10 +98,9 @@ pub fn execute(
             allocation
         } => execute_bid(deps, env, info, allocation),
         ExecuteMsg::ChangeBid {
-            allocation 
+            allocation
         } => execute_change_bid(deps, env, info, allocation),
-        ExecuteMsg::RemoveBid {
-        } => execute_remove_bid(deps, env, info),
+        ExecuteMsg::RemoveBid {} => execute_remove_bid(deps, env, info),
         ExecuteMsg::RegisterMerkleRoot {
             merkle_root,
             total_amount,
@@ -111,13 +110,15 @@ pub fn execute(
             proof
         } => execute_claim_airdrop(deps, env, info, amount, proof),
         ExecuteMsg::ClaimPrize {
-            amount,
+            amount, 
             proof
         } => todo!(),
         ExecuteMsg::WithdrawAirdrop {
             address
-        } => execute_withdraw_airdrop(deps, env, info, &address),
-        ExecuteMsg::WithdrawPrize {
+        } => {
+            execute_withdraw_airdrop(deps, env, info, &address)
+        }
+        ExecuteMsg::WithdrawPrize { 
             address
         } => todo!(),
     }
@@ -435,19 +436,6 @@ fn get_amount_for_denom(coins: &[Coin], denom: &str) -> Coin {
     }
 }
 
-fn bank_transfer_to_msg(recipient: &Addr, amount: Uint128, denom: &str) -> CosmosMsg {
-    let transfer_bank_msg = cosmwasm_std::BankMsg::Send {
-        to_address: recipient.into(),
-        amount: vec![Coin {
-            denom: denom.to_string(),
-            amount: amount,
-        }],
-    };
-
-    let transfer_bank_cosmos_msg: CosmosMsg = transfer_bank_msg.into();
-    transfer_bank_cosmos_msg
-}
-
 fn get_cw20_transfer_to_msg(
     recipient: &Addr,
     token_addr: &Addr,
@@ -474,9 +462,9 @@ fn get_cw20_transfer_to_msg(
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&query_config(deps)?),
-        QueryMsg::StagesInfo {} => to_binary(&query_stages_info(deps)?),
+        QueryMsg::Stages {} => to_binary(&query_stages(deps)?),
         QueryMsg::Bid { address } => to_binary(&query_bid(deps, address)?),
-        QueryMsg::MerkleRoot {} => todo!(),
+        QueryMsg::MerkleRoot {} => to_binary(&query_merkle_root(deps)?),
     }
 }
 
@@ -489,11 +477,11 @@ pub fn query_config(deps: Deps) -> StdResult<ConfigResponse> {
 }
 
 /// Returns stages's information.
-pub fn query_stages_info(deps: Deps) -> StdResult<StagesInfoResponse> {
+pub fn query_stages(deps: Deps) -> StdResult<StagesResponse> {
     let stage_bid = STAGE_BID.load(deps.storage)?;
     let stage_claim_airdrop = STAGE_CLAIM_AIRDROP.load(deps.storage)?;
     let stage_claim_prize = STAGE_CLAIM_PRIZE.load(deps.storage)?;
-    Ok(StagesInfoResponse {
+    Ok(StagesResponse {
         stage_bid,
         stage_claim_airdrop,
         stage_claim_prize,
@@ -509,10 +497,9 @@ pub fn query_merkle_root(deps: Deps) -> StdResult<MerkleRootResponse> {
     let merkle_root = MERKLE_ROOT.load(deps.storage)?;
     let total_amount = TOTAL_AIRDROP_AMOUNT.load(deps.storage)?;
 
-
     let resp = MerkleRootResponse {
         merkle_root,
-        total_amount
+        total_amount,
     };
 
     Ok(resp)
@@ -599,8 +586,8 @@ mod tests {
         assert_eq!("owner0000", config.owner.unwrap().as_str());
         assert_eq!("random0000", config.cw20_token_address.as_str());
 
-        let res = query(deps.as_ref(), env, QueryMsg::StagesInfo {}).unwrap();
-        let stages_info: StagesInfoResponse = from_binary(&res).unwrap();
+        let res = query(deps.as_ref(), env, QueryMsg::Stages {}).unwrap();
+        let stages_info: StagesResponse = from_binary(&res).unwrap();
         assert_eq!(Scheduled::AtHeight(200_000), stages_info.stage_bid.start);
     }
 

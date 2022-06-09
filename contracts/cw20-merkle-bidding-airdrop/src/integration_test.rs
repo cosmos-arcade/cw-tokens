@@ -12,7 +12,7 @@ use cw_utils::{Scheduled, Duration};
 use crate::ContractError;
 use crate::contract::{execute, instantiate, query};
 
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, StagesInfoResponse, BidResponse};
+use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, StagesResponse, BidResponse, MerkleRootResponse};
 use crate::state::Stage;
 
 fn mock_app() -> App {
@@ -83,10 +83,10 @@ pub fn create_cosmos_arcade(
         )
 }
 
-fn get_stages_info(router: &App, contract_addr: &Addr) -> StagesInfoResponse {
+fn get_stages(router: &App, contract_addr: &Addr) -> StagesResponse {
     router
         .wrap()
-        .query_wasm_smart(contract_addr, &QueryMsg::StagesInfo {})
+        .query_wasm_smart(contract_addr, &QueryMsg::Stages {})
         .unwrap()
 }
 
@@ -94,6 +94,13 @@ fn get_bid(router: &App, contract_addr: &Addr, address: String) -> BidResponse {
     router
         .wrap()
         .query_wasm_smart(contract_addr, &QueryMsg::Bid { address })
+        .unwrap()
+}
+
+fn get_merkle_root(router: &App, contract_addr: &Addr) -> MerkleRootResponse {
+    router
+        .wrap()
+        .query_wasm_smart(contract_addr, &QueryMsg::MerkleRoot {})
         .unwrap()
 }
 
@@ -129,7 +136,7 @@ fn test_instantiate() {
         stage_claim_prize.clone()
     ).unwrap();
 
-    let info = get_stages_info(&router, &cosmos_arcade_addr);
+    let info = get_stages(&router, &cosmos_arcade_addr);
     assert_eq!(info.stage_bid.start, Scheduled::AtHeight(200_000));
 
     // Trigger error StageOverlap
@@ -171,7 +178,9 @@ fn test_instantiate() {
 
 }
 
-
+// ======================================================================================
+// Tests bid
+// ======================================================================================
 #[test]
 fn valid_bid_no_change() {
     let mut router = mock_app();
@@ -517,6 +526,9 @@ fn remove_bid() {
     assert_eq!(Uint128::new(1_000_000), balance.amount);
 }
 
+// ======================================================================================
+// Tests Merkle root
+// ======================================================================================
 #[test]
 fn register_merkle_root() {
     let mut router = mock_app();
@@ -541,25 +553,33 @@ fn register_merkle_root() {
         stage_claim_prize.clone()
     ).unwrap();
 
-    // Trigger airdrop claim start
-    let current_block = router.block_info();
-    router.set_block(BlockInfo {
-        height: 201_001,
-        time: current_block.time,
-        chain_id: current_block.chain_id
-    });
-
-    let remove_bid_msg = ExecuteMsg::RemoveBid {};
+    let register_merkle_root_msg = ExecuteMsg::RegisterMerkleRoot {
+        merkle_root: "634de21cde1044f41d90373733b0f0fb1c1c71f9652b905cdf159e73c4cf0d37"
+            .to_string(),
+        total_amount: None,
+    };
     
-    let err = router
+    let _res = router
         .execute_contract(
-            owner.clone(),
+            Addr::unchecked("owner0000"),
             cosmos_arcade_addr.clone(),
-            &remove_bid_msg,
+            &register_merkle_root_msg,
             &[],
         )
-        .unwrap_err();
+        .unwrap();
 
-    assert_eq!(ContractError::BidNotPresent {}, err.downcast().unwrap());
+    let info = get_merkle_root(&router, &cosmos_arcade_addr);
+    assert_eq!(info.merkle_root, "634de21cde1044f41d90373733b0f0fb1c1c71f9652b905cdf159e73c4cf0d37".to_string());
 
+    let err = router
+    .execute_contract(
+        owner.clone(),
+        cosmos_arcade_addr.clone(),
+        &register_merkle_root_msg,
+        &[],
+    )
+    .unwrap_err();
+
+    assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
+    
 }
