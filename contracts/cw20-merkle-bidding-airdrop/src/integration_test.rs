@@ -2,18 +2,33 @@
 
 use std::borrow::BorrowMut;
 
-use cosmwasm_std::{coins, Addr, Coin, Empty, Uint128, BlockInfo, Event };
+use cosmwasm_std::{coins, Addr, Coin, Empty, Uint128, BlockInfo, Event, from_slice, CustomQuery };
+use cw20::{Cw20Coin, Cw20Contract, Cw20ExecuteMsg, Denom};
+
+use cw20_base::ContractError as Cw20Error;
+use cw20_base::contract::execute_send;
 
 use anyhow::Result as AnyResult;
 
 use cw_multi_test::{App, Contract, ContractWrapper, Executor};
 use cw_utils::{Scheduled, Duration};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 use crate::ContractError;
 use crate::contract::{execute, instantiate, query};
 
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, StagesResponse, BidResponse, MerkleRootResponse};
+use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, StagesResponse, BidResponse, MerkleRootResponse, ConfigResponse, AmountResponse};
 use crate::state::Stage;
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MyCustomQuery {
+    Ping {},
+    Capitalized { text: String },
+}
+
+impl CustomQuery for MyCustomQuery {}
 
 fn mock_app() -> App {
     let mut app = App::default();
@@ -45,7 +60,7 @@ fn valid_stages() -> (Stage, Stage, Stage) {
     return (stage_bid, stage_claim_airdrop, stage_claim_prize);
 }
 
-pub fn contract_cosmos_arcade() -> Box<dyn Contract<Empty>> {
+pub fn contract_game() -> Box<dyn Contract<Empty>> {
     let contract = ContractWrapper::new(
         execute,
         instantiate,
@@ -54,19 +69,29 @@ pub fn contract_cosmos_arcade() -> Box<dyn Contract<Empty>> {
     Box::new(contract)
 }
 
-pub fn create_cosmos_arcade(
+pub fn contract_cw20() -> Box<dyn Contract<Empty>> {
+    let contract = ContractWrapper::new(
+        cw20_base::contract::execute,
+        cw20_base::contract::instantiate,
+        cw20_base::contract::query,
+    );
+    Box::new(contract)
+}
+
+pub fn create_game(
     router: &mut App,
     owner: &Addr,
     ticket_price: Uint128,
     stage_bid: Stage,
     stage_claim_airdrop: Stage,
-    stage_claim_prize: Stage
+    stage_claim_prize: Stage,
+    cw20_token: Option<String>
 ) -> AnyResult<Addr> {
-    let cosmos_arcade_id = router.store_code(contract_cosmos_arcade());
+    let game_id = router.store_code(contract_game());
 
     let msg = InstantiateMsg {
         owner: Some("owner0000".to_string()),
-        cw20_token_address: "random0000".to_string(),
+        cw20_token_address: cw20_token.unwrap_or("random0000".to_string()),
         ticket_price,
         stage_bid,
         stage_claim_airdrop,
@@ -74,13 +99,38 @@ pub fn create_cosmos_arcade(
     };
     router
         .instantiate_contract(
-            cosmos_arcade_id,
+            game_id,
             owner.clone(),
             &msg,
             &[],
-            "cosmos_arcade",
+            "game",
             None,
         )
+}
+
+fn create_cw20(
+    router: &mut App,
+    owner: &Addr,
+    name: String,
+    symbol: String,
+    balance: Uint128,
+) -> Cw20Contract {
+    let cw20_id = router.store_code(contract_cw20());
+    let msg = cw20_base::msg::InstantiateMsg {
+        name,
+        symbol,
+        decimals: 2,
+        initial_balances: vec![Cw20Coin {
+            address: owner.to_string(),
+            amount: balance,
+        }],
+        mint: None,
+        marketing: None,
+    };
+    let addr = router
+        .instantiate_contract(cw20_id, owner.clone(), &msg, &[], "CASH", None)
+        .unwrap();
+    Cw20Contract(addr)
 }
 
 fn get_stages(router: &App, contract_addr: &Addr) -> StagesResponse {
@@ -97,10 +147,24 @@ fn get_bid(router: &App, contract_addr: &Addr, address: String) -> BidResponse {
         .unwrap()
 }
 
+fn get_config(router: &App, contract_addr: &Addr) -> ConfigResponse {
+    router
+        .wrap()
+        .query_wasm_smart(contract_addr, &QueryMsg::Config {})
+        .unwrap()
+}
+
 fn get_merkle_root(router: &App, contract_addr: &Addr) -> MerkleRootResponse {
     router
         .wrap()
         .query_wasm_smart(contract_addr, &QueryMsg::MerkleRoot {})
+        .unwrap()
+}
+
+fn get_claimed_amount_airdrop(router: &App, contract_addr: &Addr) -> AmountResponse {
+    router
+        .wrap()
+        .query_wasm_smart(contract_addr, &QueryMsg::AirdropClaimedAmount {})
         .unwrap()
 }
 
@@ -127,13 +191,14 @@ fn test_instantiate() {
     let (stage_bid, stage_claim_airdrop, stage_claim_prize) = &valid_stages();
 
     // Valid instantiation
-    let cosmos_arcade_addr = create_cosmos_arcade(
+    let cosmos_arcade_addr = create_game(
         &mut router,
         &owner,
         ticket_price,
         stage_bid.clone(),
         stage_claim_airdrop.clone(),
-        stage_claim_prize.clone()
+        stage_claim_prize.clone(),
+        None
     ).unwrap();
 
     let info = get_stages(&router, &cosmos_arcade_addr);
@@ -144,13 +209,14 @@ fn test_instantiate() {
     stage_claim_airdrop_err.start = Scheduled::AtHeight(100_000);
     let first = String::from("bid");
     let second = String::from("Claim airdrop");
-    let err = create_cosmos_arcade(
+    let err = create_game(
         &mut router,
         &owner,
         ticket_price,
         stage_bid.clone(),
         stage_claim_airdrop_err,
-        stage_claim_prize.clone()
+        stage_claim_prize.clone(),
+        None
     ).unwrap_err();
     assert_eq!(
         ContractError::StagesOverlap {first, second},
@@ -164,13 +230,14 @@ fn test_instantiate() {
         chain_id: current_block.chain_id
     });
 
-    let err = create_cosmos_arcade(
+    let err = create_game(
         &mut router,
         &owner,
         ticket_price,
         stage_bid.clone(),
         stage_claim_airdrop.clone(),
-        stage_claim_prize.clone()
+        stage_claim_prize.clone(),
+        None
     ).unwrap_err();
     assert_eq!(
         ContractError::BidStartPassed {},
@@ -196,13 +263,14 @@ fn valid_bid_no_change() {
 
     let (stage_bid, stage_claim_airdrop, stage_claim_prize) = valid_stages();
 
-    let cosmos_arcade_addr = create_cosmos_arcade(
+    let cosmos_arcade_addr = create_game(
         &mut router,
         &owner,
         ticket_price,
         stage_bid.clone(),
         stage_claim_airdrop.clone(),
-        stage_claim_prize.clone()
+        stage_claim_prize.clone(),
+        None
     ).unwrap();
 
     // Trigger bidding start
@@ -261,13 +329,14 @@ fn valid_bid_with_change() {
 
     let (stage_bid, stage_claim_airdrop, stage_claim_prize) = valid_stages();
 
-    let cosmos_arcade_addr = create_cosmos_arcade(
+    let cosmos_arcade_addr = create_game(
         &mut router,
         &owner,
         ticket_price,
         stage_bid.clone(),
         stage_claim_airdrop.clone(),
-        stage_claim_prize.clone()
+        stage_claim_prize.clone(),
+        None
     ).unwrap();
 
     // Trigger bidding start
@@ -322,13 +391,14 @@ fn invalid_bid() {
 
     let (stage_bid, stage_claim_airdrop, stage_claim_prize) = valid_stages();
 
-    let cosmos_arcade_addr = create_cosmos_arcade(
+    let cosmos_arcade_addr = create_game(
         &mut router,
         &owner,
         ticket_price,
         stage_bid.clone(),
         stage_claim_airdrop.clone(),
-        stage_claim_prize.clone()
+        stage_claim_prize.clone(),
+        None
     ).unwrap();
 
     // Trigger bidding start
@@ -375,13 +445,14 @@ fn change_bid() {
 
     let (stage_bid, stage_claim_airdrop, stage_claim_prize) = valid_stages();
 
-    let cosmos_arcade_addr = create_cosmos_arcade(
+    let cosmos_arcade_addr = create_game(
         &mut router,
         &owner,
         ticket_price,
         stage_bid.clone(),
         stage_claim_airdrop.clone(),
-        stage_claim_prize.clone()
+        stage_claim_prize.clone(),
+        None
     ).unwrap();
 
     // Trigger bidding start
@@ -458,13 +529,14 @@ fn remove_bid() {
 
     let (stage_bid, stage_claim_airdrop, stage_claim_prize) = valid_stages();
 
-    let cosmos_arcade_addr = create_cosmos_arcade(
+    let cosmos_arcade_addr = create_game(
         &mut router,
         &owner,
         ticket_price,
         stage_bid.clone(),
         stage_claim_airdrop.clone(),
-        stage_claim_prize.clone()
+        stage_claim_prize.clone(),
+        None
     ).unwrap();
 
     // Trigger bidding start
@@ -544,13 +616,14 @@ fn register_merkle_root() {
 
     let (stage_bid, stage_claim_airdrop, stage_claim_prize) = valid_stages();
 
-    let cosmos_arcade_addr = create_cosmos_arcade(
+    let cosmos_arcade_addr = create_game(
         &mut router,
         &owner,
         ticket_price,
         stage_bid.clone(),
         stage_claim_airdrop.clone(),
-        stage_claim_prize.clone()
+        stage_claim_prize.clone(),
+        None
     ).unwrap();
 
     let register_merkle_root_msg = ExecuteMsg::RegisterMerkleRoot {
@@ -583,3 +656,179 @@ fn register_merkle_root() {
     assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
     
 }
+
+const TEST_DATA_1: &[u8] = include_bytes!("../testdata/airdrop_stage_1_test_data.json");
+const TEST_DATA_2: &[u8] = include_bytes!("../testdata/airdrop_stage_2_test_data.json");
+
+#[derive(Deserialize, Debug)]
+struct Encoded {
+    account: String,
+    amount: Uint128,
+    root: String,
+    proofs: Vec<String>,
+}
+
+#[test]
+fn claim() {
+    let mut router = mock_app();
+
+    let test_data: Encoded = from_slice(TEST_DATA_1).unwrap();
+
+    const NATIVE_TOKEN_DENOM: &str = "ujuno";
+    let owner = Addr::unchecked("owner");
+    let ticket_price = Uint128::new(10);
+    let funds = coins(1_000_000, NATIVE_TOKEN_DENOM);
+
+    router.borrow_mut().init_modules(|router, _, storage| {
+        router.bank.init_balance(storage, &owner, funds).unwrap()
+    });
+
+    let cw20_token = create_cw20(
+        &mut router,
+        &owner,
+        "token".to_string(),
+        "CWTOKEN".to_string(),
+        Uint128::new(1_000_000),
+    );
+
+    let (stage_bid, stage_claim_airdrop, stage_claim_prize) = valid_stages();
+
+    let cw20_token_address = Some(cw20_token.addr().to_string()).unwrap();
+    let game_addr = create_game(
+        &mut router,
+        &owner,
+        ticket_price,
+        stage_bid.clone(),
+        stage_claim_airdrop.clone(),
+        stage_claim_prize.clone(),
+        Some(cw20_token_address.clone())
+    ).unwrap();
+
+    let info = get_config(&router, &game_addr);
+    assert_eq!(info.cw20_token_address, cw20_token_address);
+
+    let owner_balance = cw20_token.balance::<App, Addr, MyCustomQuery>(&router, owner.clone()).unwrap();
+    assert_eq!(owner_balance, Uint128::new(1_000_000));
+
+    let register_merkle_root_msg = ExecuteMsg::RegisterMerkleRoot {
+        merkle_root: test_data.root,
+        total_amount: Some(Uint128::new(1_000)),
+    };
+    
+    let _res = router
+        .execute_contract(
+            Addr::unchecked("owner0000"),
+            game_addr.clone(),
+            &register_merkle_root_msg,
+            &[],
+        )
+        .unwrap();
+
+    let info = get_merkle_root(&router, &game_addr);
+    assert_eq!(info.merkle_root, "b45c1ea28b26adb13e412933c9e055b01fdf7585304b00cd8f1cb220aa6c5e88".to_string());
+    assert_eq!(info.total_amount, Uint128::new(1_000));
+
+    let info = get_claimed_amount_airdrop(&router, &game_addr);
+    assert_eq!(info.total_claimed, Uint128::new(0));
+
+    let send_token_msg = cw20::Cw20ExecuteMsg::Transfer {
+        recipient: game_addr.clone().into(),
+        amount: Uint128::new(110)
+    };
+
+    let _res = router
+    .execute_contract(
+        owner,
+        Addr::unchecked(cw20_token_address),
+        &send_token_msg,
+        &[],
+    )
+    .unwrap();
+
+    let game_balance = cw20_token.balance::<App, Addr, MyCustomQuery>(&router, game_addr.clone()).unwrap();
+    assert_eq!(game_balance, Uint128::new(110));
+ 
+    let claim_airdrop_msg = ExecuteMsg::ClaimAirdrop {
+        amount: test_data.amount,
+        proof: test_data.proofs.clone(),
+    };
+    
+    let err = router
+        .execute_contract(
+            Addr::unchecked(game_addr.to_string()),
+            game_addr.clone(),
+            &claim_airdrop_msg,
+            &[],
+        )
+        .unwrap_err();
+
+    assert_eq!(
+        ContractError::StageNotStarted {stage_name: String::from("claim airdrop")},
+        err.downcast().unwrap()
+    );
+
+    let current_block = router.block_info();
+    router.set_block(BlockInfo {
+        height: 201_001,
+        time: current_block.time,
+        chain_id: current_block.chain_id
+    });
+
+    let claim_airdrop_msg = ExecuteMsg::ClaimAirdrop {
+        amount: Uint128::new(1_000),
+        proof: test_data.proofs.clone(),
+    };
+    
+    let err = router
+        .execute_contract(
+            Addr::unchecked(test_data.account.clone()),
+            game_addr.clone(),
+            &claim_airdrop_msg,
+            &[],
+        )
+        .unwrap_err();
+
+    assert_eq!(ContractError::VerificationFailed {}, err.downcast().unwrap());
+
+    let claim_airdrop_msg = ExecuteMsg::ClaimAirdrop {
+        amount: test_data.amount.clone(),
+        proof: test_data.proofs.clone(),
+    };
+    
+    let _res = router
+        .execute_contract(
+            Addr::unchecked(test_data.account.clone()),
+            game_addr.clone(),
+            &claim_airdrop_msg,
+            &[],
+        )
+        .unwrap();
+
+    let game_balance = cw20_token.balance::<App, Addr, MyCustomQuery>(&router, Addr::unchecked(test_data.account.clone())).unwrap();
+    assert_eq!(game_balance, Uint128::new(100));
+
+    let claim_airdrop_msg = ExecuteMsg::ClaimAirdrop {
+        amount: test_data.amount.clone(),
+        proof: test_data.proofs.clone(),
+    };
+    
+    let err = router
+        .execute_contract(
+            Addr::unchecked(test_data.account.clone()),
+            game_addr.clone(),
+            &claim_airdrop_msg,
+            &[],
+        )
+        .unwrap_err();
+
+    assert_eq!(ContractError::AlreadyClaimed {}, err.downcast().unwrap());
+
+    let game_balance = cw20_token.balance::<App, Addr, MyCustomQuery>(&router, game_addr.clone()).unwrap();
+    assert_eq!(game_balance, Uint128::new(10));
+
+    let info = get_claimed_amount_airdrop(&router, &game_addr);
+    assert_eq!(info.total_claimed, Uint128::new(100));
+
+
+}
+    

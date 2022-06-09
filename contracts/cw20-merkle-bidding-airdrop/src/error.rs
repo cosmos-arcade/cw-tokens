@@ -37,17 +37,17 @@ pub enum ContractError {
     #[error("Claim Prize stage has expired")]
     ClaimPrizeStageExpired {},
 
-    #[error("Bid stage hasn't begun")]
-    BidStageNotBegun {},
+    #[error("The {stage_name} has not started")]
+    StageNotStarted { stage_name: String },
+
+    #[error("The {stage_name} has ended")]
+    StageEnded { stage_name: String },
 
     #[error("Claim Airdrop stage hasn't begun")]
     ClaimAirdropStageNotBegun {},
 
     #[error("Claim Prize stage hasn't begun")]
     ClaimPrizeStageNotBegun {},
-
-    #[error("Bid stage has expired")]
-    BidStageExpired {},
 
     #[error("Fund sent insufficent for paying the bid price")]
     TicketPriceNotPaid {},

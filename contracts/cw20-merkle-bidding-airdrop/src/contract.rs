@@ -12,7 +12,7 @@ use std::convert::TryInto;
 use crate::error::ContractError;
 use crate::msg::{
     BidResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, MerkleRootResponse, MigrateMsg,
-    QueryMsg, StagesResponse,
+    QueryMsg, StagesResponse, AmountResponse,
 };
 use crate::state::{
     Config, Stage, BIDS, CLAIMED_AIRDROP_AMOUNT, CLAIM_AIRDROP, CONFIG, MERKLE_ROOT, STAGE_BID,
@@ -151,16 +151,16 @@ pub fn execute_update_config(
     Ok(Response::new().add_attribute("action", "update_config"))
 }
 
-pub fn check_if_bid_stage(stage_bid: Stage, env: Env) -> Result<(), ContractError> {
-    // Bid not allowed if the bidding phase has not started.
-    if !stage_bid.start.is_triggered(&env.block) {
-        return Err(ContractError::BidStageNotBegun {});
+pub fn check_if_valid_stage(env: Env, stage: Stage, stage_name: String) -> Result<(), ContractError> {
+    // The stage has not started.
+    if !stage.start.is_triggered(&env.block) {
+        return Err(ContractError::StageNotStarted { stage_name });
     }
 
-    // Bid not allowed if the bidding phase has ended.
-    let stage_bid_end = (stage_bid.start + stage_bid.duration)?;
-    if stage_bid_end.is_triggered(&env.block) {
-        return Err(ContractError::BidStageExpired {});
+    // The stage has ended.
+    let stage_end = (stage.start + stage.duration)?;
+    if stage_end.is_triggered(&env.block) {
+        return Err(ContractError::StageEnded { stage_name });
     }
 
     Ok(())
@@ -173,8 +173,8 @@ pub fn execute_bid(
     allocation: Uint128,
 ) -> Result<Response, ContractError> {
     let stage_bid = STAGE_BID.load(deps.storage)?;
-
-    check_if_bid_stage(stage_bid, env)?;
+    let stage_name = String::from("bid");
+    check_if_valid_stage(env,stage_bid, stage_name)?;
 
     let ticket_price = TICKET_PRICE.load(deps.storage)?;
 
@@ -216,8 +216,8 @@ pub fn execute_change_bid(
     allocation: Uint128,
 ) -> Result<Response, ContractError> {
     let stage_bid = STAGE_BID.load(deps.storage)?;
-
-    check_if_bid_stage(stage_bid, env)?;
+    let stage_name = String::from("bid");
+    check_if_valid_stage(env,stage_bid, stage_name)?;
 
     // If a previous bid doesn't exists for the sender, nothing can be changed.
     if !BIDS.has(deps.storage, &info.sender) {
@@ -243,8 +243,8 @@ pub fn execute_remove_bid(
     info: MessageInfo,
 ) -> Result<Response, ContractError> {
     let stage_bid = STAGE_BID.load(deps.storage)?;
-
-    check_if_bid_stage(stage_bid, env)?;
+    let stage_name = String::from("bid");
+    check_if_valid_stage(env,stage_bid, stage_name)?;
 
     let ticket_price = TICKET_PRICE.load(deps.storage)?;
 
@@ -308,25 +308,16 @@ pub fn execute_register_merkle_root(
 
 pub fn execute_claim_airdrop(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     amount: Uint128,
     proof: Vec<String>,
 ) -> Result<Response, ContractError> {
-    let stage_claim_aidrop = STAGE_CLAIM_AIRDROP.load(deps.storage)?;
+    let stage_claim_airdrop = STAGE_CLAIM_AIRDROP.load(deps.storage)?;
+    let stage_name = String::from("claim airdrop");
+    check_if_valid_stage(env, stage_claim_airdrop, stage_name)?;
 
-    // throw an error if airdrop claim stage hasn't started
-    if !stage_claim_aidrop.start.is_triggered(&_env.block) {
-        return Err(ContractError::ClaimAirdropStageNotBegun {});
-    }
-
-    // throw an error if airdrop claim stage is expired
-    let stage_claim_airdrop_end = (stage_claim_aidrop.start + stage_claim_aidrop.duration)?;
-    if stage_claim_airdrop_end.is_triggered(&_env.block) {
-        return Err(ContractError::ClaimAirdropStageExpired {});
-    }
-
-    // verify that user did not claimed already
+    // Verify that the user has not already made the claim.
     let claimed = CLAIM_AIRDROP.may_load(deps.storage, &info.sender)?;
     if claimed.is_some() {
         return Err(ContractError::AlreadyClaimed {});
@@ -335,6 +326,8 @@ pub fn execute_claim_airdrop(
     let config = CONFIG.load(deps.storage)?;
     let merkle_root = MERKLE_ROOT.load(deps.storage)?;
 
+    // Compare proofs: the proof sent by the user must be the same of the one
+    // produced with info.sender address.
     let user_input = format!("{}{}", info.sender, amount);
     let hash = sha2::Sha256::digest(user_input.as_bytes())
         .as_slice()
@@ -358,13 +351,17 @@ pub fn execute_claim_airdrop(
         return Err(ContractError::VerificationFailed {});
     }
 
-    // Update claim index
+    // Update claim index.
     CLAIM_AIRDROP.save(deps.storage, &info.sender, &true)?;
 
     // Update claimed amount to reflect
-    let mut claimed_amount = CLAIMED_AIRDROP_AMOUNT.load(deps.storage)?;
-    claimed_amount += amount;
-    CLAIMED_AIRDROP_AMOUNT.save(deps.storage, &claimed_amount)?;
+    CLAIMED_AIRDROP_AMOUNT.update(
+        deps.storage,
+        |mut claimed_amount| -> StdResult<_> {
+            claimed_amount += amount;
+            Ok(claimed_amount)
+        }
+    )?;
 
     let res = Response::new()
         .add_message(WasmMsg::Execute {
@@ -465,6 +462,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::Stages {} => to_binary(&query_stages(deps)?),
         QueryMsg::Bid { address } => to_binary(&query_bid(deps, address)?),
         QueryMsg::MerkleRoot {} => to_binary(&query_merkle_root(deps)?),
+        QueryMsg::AirdropClaimedAmount { } => to_binary(&query_airdrop_claimed_amount(deps)?)
     }
 }
 
@@ -500,6 +498,16 @@ pub fn query_merkle_root(deps: Deps) -> StdResult<MerkleRootResponse> {
     let resp = MerkleRootResponse {
         merkle_root,
         total_amount,
+    };
+
+    Ok(resp)
+}
+
+pub fn query_airdrop_claimed_amount(deps: Deps) -> StdResult<AmountResponse> {
+    let total_claimed = CLAIMED_AIRDROP_AMOUNT.load(deps.storage)?;
+
+    let resp = AmountResponse {
+        total_claimed,
     };
 
     Ok(resp)
