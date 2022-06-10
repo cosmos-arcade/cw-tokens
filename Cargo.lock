@@ -386,6 +386,7 @@ dependencies = [
  "cw-utils",
  "cw2",
  "cw20",
+ "cw20-base",
  "hex 0.4.3",
  "schemars",
  "serde",
