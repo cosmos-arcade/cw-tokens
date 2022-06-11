@@ -41,8 +41,23 @@ pub const STAGE_CLAIM_PRIZE: Item<Stage> = Item::new(STAGE_CLAIM_PRIZE_KEY);
 pub const TICKET_PRICE_KEY: &str = "ticket_price";
 pub const TICKET_PRICE: Item<Uint128> = Item::new(TICKET_PRICE_KEY);
 
-pub const MERKLE_ROOT_PREFIX: &str = "merkle_root";
-pub const MERKLE_ROOT: Item<String> = Item::new(MERKLE_ROOT_PREFIX);
+pub const MERKLE_ROOT_AIRDROP_PREFIX: &str = "merkle_root_airdrop";
+pub const MERKLE_ROOT_AIRDROP: Item<String> = Item::new(MERKLE_ROOT_AIRDROP_PREFIX);
+
+pub const MERKLE_ROOT_GAME_PREFIX: &str = "merkle_root_game";
+pub const MERKLE_ROOT_GAME: Item<String> = Item::new(MERKLE_ROOT_GAME_PREFIX);
+
+/// Amount of airdropped tokens claimed.
+pub const CLAIMED_AIRDROP_AMOUNT_PREFIX: &str = "claimed_amount";
+pub const CLAIMED_AIRDROP_AMOUNT: Item<Uint128> = Item::new(CLAIMED_AIRDROP_AMOUNT_PREFIX);
+
+pub const BINS_PREFIX: &str = "bins";
+pub const BINS: Item<u8> = Item::new(BIDS_PREFIX);
+
+/// Total amount of tokens to airdrop.
+pub const TOTAL_AIRDROP_AMOUNT_PREFIX: &str = "total_amount";
+pub const TOTAL_AIRDROP_AMOUNT: Item<Uint128> = Item::new(TOTAL_AIRDROP_AMOUNT_PREFIX);
+
 
 /// Storage to save if an addres has claimed the airdrop or not.
 pub const CLAIM_AIRDROP_PREFIX: &str = "claim_airdrop";
@@ -54,12 +69,4 @@ pub const CLAIM_PRIZE: Map<&Addr, bool> = Map::new(CLAIM_PRIZE_PREFIX);
 
 /// Storage to manage the bid of each addres.
 pub const BIDS_PREFIX: &str = "bids";
-pub const BIDS: Map<&Addr, Uint128> = Map::new("bids");
-
-/// Amount of airdropped tokens claimed.
-pub const CLAIMED_AIRDROP_AMOUNT_PREFIX: &str = "claimed_amount";
-pub const CLAIMED_AIRDROP_AMOUNT: Item<Uint128> = Item::new(CLAIMED_AIRDROP_AMOUNT_PREFIX);
-
-/// Total amount of tokens to airdrop.
-pub const TOTAL_AIRDROP_AMOUNT_PREFIX: &str = "total_amount";
-pub const TOTAL_AIRDROP_AMOUNT: Item<Uint128> = Item::new(TOTAL_AIRDROP_AMOUNT_PREFIX);
+pub const BIDS: Map<&Addr, u8> = Map::new("bids");

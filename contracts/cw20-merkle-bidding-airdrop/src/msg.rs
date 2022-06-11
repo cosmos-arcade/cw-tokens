@@ -15,6 +15,8 @@ pub struct InstantiateMsg {
     pub cw20_token_address: String,
     /// Price of the ticket to bid.
     pub ticket_price: Uint128,
+    /// The winning probability is associasted to the number of bins.
+    pub bins: u8,
     /// Info related to the bidding stage.
     pub stage_bid: Stage,
     /// Info related to the airdrop claiming stage.
@@ -34,24 +36,25 @@ pub enum ExecuteMsg {
     },
     /// Place a bid.
     Bid {
-        /// bidding allocation value
-        allocation: Uint128,
+        /// bidding bin value
+        bin: u8,
     },
     /// Change the value of a previously placed bid.
     ChangeBid {
         /// input a value to change a previous bid
-        allocation: Uint128,
+        bin: u8,
     },
     /// Remove a previously placed bid.
     RemoveBid {},
     /// Register Merkle root in the contract.
-    RegisterMerkleRoot {
+    RegisterMerkleRoots {
         /// MerkleRoot is hex-encoded merkle root.
-        merkle_root: String,
+        merkle_root_airdrop: String,
         total_amount: Option<Uint128>,
+        merkle_root_game: String
     },
     // Claim does not check if contract has enough funds, owner must ensure it.
-    /// Claim airdrop allocation.
+    /// Claim airdrop bin.
     ClaimAirdrop {
         amount: Uint128,
         /// Proof is hex-encoded merkle proof.
@@ -78,7 +81,7 @@ pub enum QueryMsg {
     Stages {},
     Bid { address: String },
     MerkleRoot {},
-    AirdropClaimedAmount {}
+    AirdropClaimedAmount {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -103,18 +106,19 @@ pub struct StagesResponse {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct BidResponse {
-    pub bid: Option<Uint128>,
+    pub bid: Option<u8>,
 }
 
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct MerkleRootResponse {
+pub struct MerkleRootsResponse {
     /// MerkleRoot is hex-encoded merkle root.
-    pub merkle_root: String,
-    pub total_amount: Uint128
+    pub merkle_root_airdrop: String,
+    pub total_amount: Uint128,
+    pub merkle_root_game: String
+
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct AmountResponse {
-    pub total_claimed: Uint128
+    pub total_claimed: Uint128,
 }

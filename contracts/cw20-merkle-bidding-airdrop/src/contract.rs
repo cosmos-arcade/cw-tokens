@@ -11,12 +11,12 @@ use std::convert::TryInto;
 
 use crate::error::ContractError;
 use crate::msg::{
-    BidResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, MerkleRootResponse, MigrateMsg,
-    QueryMsg, StagesResponse, AmountResponse,
+    AmountResponse, BidResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, MerkleRootsResponse,
+    MigrateMsg, QueryMsg, StagesResponse,
 };
 use crate::state::{
-    Config, Stage, BIDS, CLAIMED_AIRDROP_AMOUNT, CLAIM_AIRDROP, CONFIG, MERKLE_ROOT, STAGE_BID,
-    STAGE_CLAIM_AIRDROP, STAGE_CLAIM_PRIZE, TICKET_PRICE, TOTAL_AIRDROP_AMOUNT,
+    Config, Stage, BIDS, CLAIMED_AIRDROP_AMOUNT, CLAIM_AIRDROP, CONFIG, STAGE_BID,
+    STAGE_CLAIM_AIRDROP, STAGE_CLAIM_PRIZE, TICKET_PRICE, TOTAL_AIRDROP_AMOUNT, BINS, MERKLE_ROOT_AIRDROP, MERKLE_ROOT_GAME,
 };
 
 // Version info, for migration info
@@ -79,6 +79,7 @@ pub fn instantiate(
     STAGE_CLAIM_AIRDROP.save(deps.storage, &msg.stage_claim_airdrop)?;
     STAGE_CLAIM_PRIZE.save(deps.storage, &msg.stage_claim_prize)?;
     TICKET_PRICE.save(deps.storage, &msg.ticket_price)?;
+    BINS.save(deps.storage, &msg.bins)?;
 
     Ok(Response::default())
 }
@@ -91,36 +92,24 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::UpdateConfig {
-            new_owner
-        } => execute_update_config(deps, env, info, new_owner),
-        ExecuteMsg::Bid {
-            allocation
-        } => execute_bid(deps, env, info, allocation),
-        ExecuteMsg::ChangeBid {
-            allocation
-        } => execute_change_bid(deps, env, info, allocation),
+        ExecuteMsg::UpdateConfig { new_owner } => execute_update_config(deps, env, info, new_owner),
+        ExecuteMsg::Bid { bin } => execute_bid(deps, env, info, bin),
+        ExecuteMsg::ChangeBid { bin } => execute_change_bid(deps, env, info, bin),
         ExecuteMsg::RemoveBid {} => execute_remove_bid(deps, env, info),
-        ExecuteMsg::RegisterMerkleRoot {
-            merkle_root,
+        ExecuteMsg::RegisterMerkleRoots {
+            merkle_root_airdrop,
             total_amount,
-        } => execute_register_merkle_root(deps, env, info, merkle_root, total_amount),
+            merkle_root_game
+        } => execute_register_merkle_roots(deps, env, info, merkle_root_airdrop, total_amount, merkle_root_game),
         ExecuteMsg::ClaimAirdrop {
             amount,
             proof
         } => execute_claim_airdrop(deps, env, info, amount, proof),
-        ExecuteMsg::ClaimPrize {
-            amount, 
-            proof
-        } => todo!(),
-        ExecuteMsg::WithdrawAirdrop {
-            address
-        } => {
+        ExecuteMsg::ClaimPrize { amount, proof } => todo!(),
+        ExecuteMsg::WithdrawAirdrop { address } => {
             execute_withdraw_airdrop(deps, env, info, &address)
         }
-        ExecuteMsg::WithdrawPrize { 
-            address
-        } => todo!(),
+        ExecuteMsg::WithdrawPrize { address } => todo!(),
     }
 }
 
@@ -151,7 +140,11 @@ pub fn execute_update_config(
     Ok(Response::new().add_attribute("action", "update_config"))
 }
 
-pub fn check_if_valid_stage(env: Env, stage: Stage, stage_name: String) -> Result<(), ContractError> {
+pub fn check_if_valid_stage(
+    env: Env,
+    stage: Stage,
+    stage_name: String,
+) -> Result<(), ContractError> {
     // The stage has not started.
     if !stage.start.is_triggered(&env.block) {
         return Err(ContractError::StageNotStarted { stage_name });
@@ -170,11 +163,11 @@ pub fn execute_bid(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    allocation: Uint128,
+    bin: u8,
 ) -> Result<Response, ContractError> {
     let stage_bid = STAGE_BID.load(deps.storage)?;
     let stage_name = String::from("bid");
-    check_if_valid_stage(env,stage_bid, stage_name)?;
+    check_if_valid_stage(env, stage_bid, stage_name)?;
 
     let ticket_price = TICKET_PRICE.load(deps.storage)?;
 
@@ -189,6 +182,12 @@ pub fn execute_bid(
         return Err(ContractError::TicketPriceNotPaid {});
     }
 
+    // If selected bin not permitted, bid not allowed.
+    let bins = BINS.load(deps.storage)?;
+    if bin > bins {
+        return Err(ContractError::BinNotExists { bins });
+    }
+
     // If sender sent funds higher than ticket price, return change.
     let mut transfer_msg: Vec<CosmosMsg> = vec![];
     if fund_sent.amount > ticket_price {
@@ -199,13 +198,13 @@ pub fn execute_bid(
         ))
     }
 
-    BIDS.save(deps.storage, &info.sender, &allocation)?;
+    BIDS.save(deps.storage, &info.sender, &bin)?;
 
     let res = Response::new()
         .add_messages(transfer_msg)
         .add_attribute("action", "bid")
         .add_attribute("player", info.sender)
-        .add_attribute("allocation", allocation);
+        .add_attribute("bin", bin.to_string());
     Ok(res)
 }
 
@@ -213,11 +212,11 @@ pub fn execute_change_bid(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    allocation: Uint128,
+    bin: u8,
 ) -> Result<Response, ContractError> {
     let stage_bid = STAGE_BID.load(deps.storage)?;
     let stage_name = String::from("bid");
-    check_if_valid_stage(env,stage_bid, stage_name)?;
+    check_if_valid_stage(env, stage_bid, stage_name)?;
 
     // If a previous bid doesn't exists for the sender, nothing can be changed.
     if !BIDS.has(deps.storage, &info.sender) {
@@ -227,13 +226,13 @@ pub fn execute_change_bid(
     BIDS.update(
         deps.storage,
         &info.sender,
-        |_allocation: Option<Uint128>| -> StdResult<Uint128> { Ok(allocation) },
+        |_bin: Option<u8>| -> StdResult<u8> { Ok(bin) },
     )?;
 
     let res = Response::new()
         .add_attribute("action", "change_bid")
         .add_attribute("player", info.sender)
-        .add_attribute("new_allocation", allocation);
+        .add_attribute("new_bin", bin.to_string());
     Ok(res)
 }
 
@@ -244,7 +243,7 @@ pub fn execute_remove_bid(
 ) -> Result<Response, ContractError> {
     let stage_bid = STAGE_BID.load(deps.storage)?;
     let stage_name = String::from("bid");
-    check_if_valid_stage(env,stage_bid, stage_name)?;
+    check_if_valid_stage(env, stage_bid, stage_name)?;
 
     let ticket_price = TICKET_PRICE.load(deps.storage)?;
 
@@ -272,12 +271,13 @@ pub fn execute_remove_bid(
     Ok(res)
 }
 
-pub fn execute_register_merkle_root(
+pub fn execute_register_merkle_roots(
     deps: DepsMut,
     _env: Env,
     info: MessageInfo,
-    merkle_root: String,
+    merkle_root_airdrop: String,
     total_amount: Option<Uint128>,
+    merkle_root_game: String,
 ) -> Result<Response, ContractError> {
     // Just the contract owner can load the Merkle root.
     let cfg = CONFIG.load(deps.storage)?;
@@ -286,23 +286,30 @@ pub fn execute_register_merkle_root(
         return Err(ContractError::Unauthorized {});
     }
 
-    // TODO: check sul periodo in cui poter depositare la merkle root.
+    // TODO: check sul periodo in cui poter depositare la merkle root. 
+    // FIssiamo che è possibile solo fino alll'inizio del claim?
 
-    // Check merkle root length.
+    // Check merkle root airdrop length.
     let mut root_buf: [u8; 32] = [0; 32];
-    hex::decode_to_slice(&merkle_root, &mut root_buf)?;
+    hex::decode_to_slice(&merkle_root_airdrop, &mut root_buf)?;
 
-    MERKLE_ROOT.save(deps.storage, &merkle_root)?;
+    // Check merkle root game length.
+    let mut root_buf: [u8; 32] = [0; 32];
+    hex::decode_to_slice(&merkle_root_game, &mut root_buf)?;
 
     // Save total airdropped amount.
     let amount = total_amount.unwrap_or_else(Uint128::zero);
+
+    MERKLE_ROOT_AIRDROP.save(deps.storage, &merkle_root_airdrop)?;
+    MERKLE_ROOT_GAME.save(deps.storage, &merkle_root_game)?;
     TOTAL_AIRDROP_AMOUNT.save(deps.storage, &amount)?;
     CLAIMED_AIRDROP_AMOUNT.save(deps.storage, &Uint128::zero())?;
 
     Ok(Response::new().add_attributes(vec![
-        attr("action", "register_merkle_root"),
-        attr("merkle_root", merkle_root),
+        attr("action", "register_merkle_roots"),
+        attr("merkle_root_airdrop", merkle_root_airdrop),
         attr("total_amount", amount),
+        attr("merkle_root_game", merkle_root_game),
     ]))
 }
 
@@ -324,7 +331,7 @@ pub fn execute_claim_airdrop(
     }
 
     let config = CONFIG.load(deps.storage)?;
-    let merkle_root = MERKLE_ROOT.load(deps.storage)?;
+    let merkle_root = MERKLE_ROOT_AIRDROP.load(deps.storage)?;
 
     // Compare proofs: the proof sent by the user must be the same of the one
     // produced with info.sender address.
@@ -355,13 +362,10 @@ pub fn execute_claim_airdrop(
     CLAIM_AIRDROP.save(deps.storage, &info.sender, &true)?;
 
     // Update claimed amount to reflect
-    CLAIMED_AIRDROP_AMOUNT.update(
-        deps.storage,
-        |mut claimed_amount| -> StdResult<_> {
-            claimed_amount += amount;
-            Ok(claimed_amount)
-        }
-    )?;
+    CLAIMED_AIRDROP_AMOUNT.update(deps.storage, |mut claimed_amount| -> StdResult<_> {
+        claimed_amount += amount;
+        Ok(claimed_amount)
+    })?;
 
     let res = Response::new()
         .add_message(WasmMsg::Execute {
@@ -462,7 +466,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::Stages {} => to_binary(&query_stages(deps)?),
         QueryMsg::Bid { address } => to_binary(&query_bid(deps, address)?),
         QueryMsg::MerkleRoot {} => to_binary(&query_merkle_root(deps)?),
-        QueryMsg::AirdropClaimedAmount { } => to_binary(&query_airdrop_claimed_amount(deps)?)
+        QueryMsg::AirdropClaimedAmount {} => to_binary(&query_airdrop_claimed_amount(deps)?),
     }
 }
 
@@ -491,13 +495,15 @@ pub fn query_bid(deps: Deps, address: String) -> StdResult<BidResponse> {
     Ok(BidResponse { bid })
 }
 
-pub fn query_merkle_root(deps: Deps) -> StdResult<MerkleRootResponse> {
-    let merkle_root = MERKLE_ROOT.load(deps.storage)?;
+pub fn query_merkle_root(deps: Deps) -> StdResult<MerkleRootsResponse> {
+    let merkle_root_airdrop = MERKLE_ROOT_AIRDROP.load(deps.storage)?;
     let total_amount = TOTAL_AIRDROP_AMOUNT.load(deps.storage)?;
+    let merkle_root_game = MERKLE_ROOT_GAME.load(deps.storage)?;
 
-    let resp = MerkleRootResponse {
-        merkle_root,
+    let resp = MerkleRootsResponse {
+        merkle_root_airdrop,
         total_amount,
+        merkle_root_game
     };
 
     Ok(resp)
@@ -506,9 +512,7 @@ pub fn query_merkle_root(deps: Deps) -> StdResult<MerkleRootResponse> {
 pub fn query_airdrop_claimed_amount(deps: Deps) -> StdResult<AmountResponse> {
     let total_claimed = CLAIMED_AIRDROP_AMOUNT.load(deps.storage)?;
 
-    let resp = AmountResponse {
-        total_claimed,
-    };
+    let resp = AmountResponse { total_claimed };
 
     Ok(resp)
 }
@@ -577,6 +581,7 @@ mod tests {
             owner: Some("owner0000".to_string()),
             cw20_token_address: "random0000".to_string(),
             ticket_price: Uint128::new(10),
+            bins: 10,
             stage_bid: stage_bid,
             stage_claim_airdrop: stage_claim_airdrop,
             stage_claim_prize: stage_claim_prize,
@@ -609,6 +614,7 @@ mod tests {
             owner: Some("owner0000".to_string()),
             cw20_token_address: "random0000".to_string(),
             ticket_price: Uint128::new(10),
+            bins: 10,
             stage_bid: stage_bid,
             stage_claim_airdrop: stage_claim_airdrop,
             stage_claim_prize: stage_claim_prize,
