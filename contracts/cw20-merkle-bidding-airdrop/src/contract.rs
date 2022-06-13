@@ -75,7 +75,6 @@ pub fn instantiate(
     // ======================================================================================
     // Contract initial state
     // ======================================================================================
-    // Saving contract's state after validity checks avoid useless computation.
     CONFIG.save(deps.storage, &config)?;
     STAGE_BID.save(deps.storage, &msg.stage_bid)?;
     STAGE_CLAIM_AIRDROP.save(deps.storage, &msg.stage_claim_airdrop)?;
@@ -111,7 +110,9 @@ pub fn execute(
             total_amount_airdrop,
             merkle_root_game,
             total_amount_game
-        } => execute_register_merkle_roots(deps, env, info, merkle_root_airdrop, total_amount_airdrop, merkle_root_game, total_amount_game),
+        } => execute_register_merkle_roots(
+            deps, env, info, merkle_root_airdrop, total_amount_airdrop, merkle_root_game, total_amount_game
+        ),
         ExecuteMsg::ClaimAirdrop {
             amount,
             proof_airdrop,
@@ -133,10 +134,9 @@ pub fn execute_update_config(
     info: MessageInfo,
     new_owner: Option<String>,
 ) -> Result<Response, ContractError> {
+    // Just the contract owner can update the config.
     let cfg = CONFIG.load(deps.storage)?;
-    // If owner not set the config cannot be updated.
     let owner = cfg.owner.ok_or(ContractError::Unauthorized {})?;
-    // Just the owner can update the config.
     if info.sender != owner {
         return Err(ContractError::Unauthorized {});
     }
@@ -154,25 +154,8 @@ pub fn execute_update_config(
     Ok(Response::new().add_attribute("action", "update_config"))
 }
 
-pub fn check_if_valid_stage(
-    env: Env,
-    stage: Stage,
-    stage_name: String,
-) -> Result<(), ContractError> {
-    // The stage has not started.
-    if !stage.start.is_triggered(&env.block) {
-        return Err(ContractError::StageNotStarted { stage_name });
-    }
-
-    // The stage has ended.
-    let stage_end = (stage.start + stage.duration)?;
-    if stage_end.is_triggered(&env.block) {
-        return Err(ContractError::StageEnded { stage_name });
-    }
-
-    Ok(())
-}
-
+// TODO: add tests:
+// - send a fund different from the tiket.
 pub fn execute_bid(
     deps: DepsMut,
     env: Env,
@@ -191,29 +174,30 @@ pub fn execute_bid(
     };
 
     // If ticket price not paid, bid is not allowed.
-    let fund_sent = get_amount_for_denom(&info.funds, "ujuno");
-    if fund_sent.amount < ticket_price.amount {
+    let funds_sent = get_amount_for_denom(&info.funds, &ticket_price.denom);
+    if funds_sent.amount < ticket_price.amount {
         return Err(ContractError::TicketPriceNotPaid {});
     }
 
     // If selected bin not permitted, bid not allowed.
     let bins = BINS.load(deps.storage)?;
     if bin > bins {
-        return Err(ContractError::BinNotExists { bins });
+        return Err(ContractError::BinDoesNotExist { bins });
     }
 
     // If sender sent funds higher than ticket price, return change.
     let mut transfer_msg: Vec<CosmosMsg> = vec![];
-    if fund_sent.amount > ticket_price.amount {
+    if funds_sent.amount > ticket_price.amount {
         transfer_msg.push(get_bank_transfer_to_msg(
             &info.sender,
-            &fund_sent.denom,
-            fund_sent.amount - ticket_price.amount,
+            &funds_sent.denom,
+            funds_sent.amount - ticket_price.amount,
         ))
     }
 
     BIDS.save(deps.storage, &info.sender, &bin)?;
-    // Add ticket prize to the final prize.
+
+    // Add payed ticket to the final prize.
     TOTAL_TICKET_PRIZE.update(deps.storage, |mut actual_prize| -> StdResult<_> {
         actual_prize += ticket_price.amount;
         Ok(actual_prize)
@@ -264,11 +248,6 @@ pub fn execute_remove_bid(
     let stage_name = String::from("bid");
     check_if_valid_stage(env, stage_bid, stage_name)?;
 
-    let ticket_price = TICKET_PRICE.load(deps.storage)?;
-
-    // Vector for a possible refund message.
-    let mut transfer_msg: Vec<CosmosMsg> = vec![];
-
     // IF: check if a bid for the sender is not present.
     // ELSE: if the bid is present, remove it and send back the ticket price to the sender.
     if !BIDS.has(deps.storage, &info.sender) {
@@ -276,26 +255,31 @@ pub fn execute_remove_bid(
     }
 
     BIDS.remove(deps.storage, &info.sender);
-    transfer_msg.push(get_bank_transfer_to_msg(
-        &info.sender,
-        &ticket_price.denom,
-        ticket_price.amount,
-    ));
 
-    // Remove ticket prize from the final prize.
+    // Remove from ticket prize a ticket.
+    let ticket_price = TICKET_PRICE.load(deps.storage)?;
     TOTAL_TICKET_PRIZE.update(deps.storage, |mut actual_prize| -> StdResult<_> {
         actual_prize -= ticket_price.amount;
         Ok(actual_prize)
     })?;
 
+    let msg = get_bank_transfer_to_msg(
+        &info.sender,
+        &ticket_price.denom,
+        ticket_price.amount,
+    );
+
     let res = Response::new()
-        .add_messages(transfer_msg)
+        .add_message(msg)
         .add_attribute("action", "remove_bid")
         .add_attribute("player", info.sender)
         .add_attribute("ticket_price_payback", ticket_price.amount);
     Ok(res)
 }
 
+// ======================================================================================
+// Merkle root and claiming phase
+// ======================================================================================
 pub fn execute_register_merkle_roots(
     deps: DepsMut,
     _env: Env,
@@ -313,7 +297,7 @@ pub fn execute_register_merkle_roots(
     }
 
     // TODO: check sul periodo in cui poter depositare la merkle root. 
-    // FIssiamo che è possibile solo fino alll'inizio del claim?
+    // Fissiamo che è possibile solo fino alll'inizio del claim?
 
     // Check merkle root airdrop length.
     let mut root_buf: [u8; 32] = [0; 32];
@@ -323,9 +307,10 @@ pub fn execute_register_merkle_roots(
     let mut root_buf: [u8; 32] = [0; 32];
     hex::decode_to_slice(&merkle_root_game, &mut root_buf)?;
 
-    // Save total airdropped amount.
+    // Save total amount of tokens to be airdropped.
     let amount_airdrop = total_amount_airdrop.unwrap_or_else(Uint128::zero);
-    // Save prize from airdropped token.
+
+    // Save total amount of token to be airdropped to game winners.
     let amount_game = total_amount_game.unwrap_or_else(Uint128::zero);
 
     MERKLE_ROOT_AIRDROP.save(deps.storage, &merkle_root_airdrop)?;
@@ -333,6 +318,7 @@ pub fn execute_register_merkle_roots(
     TOTAL_AIRDROP_AMOUNT.save(deps.storage, &amount_airdrop)?;
     TOTAL_AIRDROP_GAME_AMOUNT.save(deps.storage, &amount_game)?;
     CLAIMED_AIRDROP_AMOUNT.save(deps.storage, &Uint128::zero())?;
+    CLAIMED_PRIZE_AMOUNT.save(deps.storage, &Uint128::zero())?;
 
     Ok(Response::new().add_attributes(vec![
         attr("action", "register_merkle_roots"),
@@ -350,6 +336,7 @@ pub fn execute_claim_airdrop(
     proof_airdrop: Vec<String>,
     proof_game: Vec<String>
 ) -> Result<Response, ContractError> {
+    // Check that the correct stage is active.
     let stage_claim_airdrop = STAGE_CLAIM_AIRDROP.load(deps.storage)?;
     let stage_name = String::from("claim airdrop");
     check_if_valid_stage(env, stage_claim_airdrop, stage_name)?;
@@ -360,7 +347,7 @@ pub fn execute_claim_airdrop(
         return Err(ContractError::AlreadyClaimed {});
     }
 
-    let config = CONFIG.load(deps.storage)?;
+    let cfg = CONFIG.load(deps.storage)?;
     let merkle_root_airdrop = MERKLE_ROOT_AIRDROP.load(deps.storage)?;
     let merkle_root_game = MERKLE_ROOT_GAME.load(deps.storage)?;
 
@@ -389,11 +376,12 @@ pub fn execute_claim_airdrop(
         return Err(ContractError::VerificationFailed {});
     }
 
-    // verify not claimed
+    // If the sender has an active bid, check if it wins or not.
     let sender_bid = BIDS.may_load(deps.storage, &info.sender)?;
     if sender_bid.is_some() {
         let sender_bid = sender_bid.unwrap();
 
+        // The proof is computed by using as a leaf the value bidded by the sender.
         let user_input = format!("{}{}", info.sender, sender_bid);
         let hash = sha2::Sha256::digest(user_input.as_bytes())
             .as_slice()
@@ -413,6 +401,9 @@ pub fn execute_claim_airdrop(
 
         let mut root_buf: [u8; 32] = [0; 32];
         hex::decode_to_slice(merkle_root_game, &mut root_buf)?;
+        // If the two root are equal:
+        // - Save the sender as a winner with unclaimed prize.
+        // - Increase the number of winners.
         if root_buf == hash {
             CLAIM_PRIZE.save(deps.storage, &info.sender, &false)?;
             WINNERS.update(deps.storage, |mut winners_number| -> StdResult<_> {
@@ -422,27 +413,26 @@ pub fn execute_claim_airdrop(
         }
     }
         
-    // Update claim index.
+    // Mark the sender as a user that has received the airdrop.
     CLAIM_AIRDROP.save(deps.storage, &info.sender, &true)?;
 
-    // Update claimed amount to reflect
+    // Increase the amount of airdropped tokens claimed.
     CLAIMED_AIRDROP_AMOUNT.update(deps.storage, |mut claimed_amount| -> StdResult<_> {
         claimed_amount += amount;
         Ok(claimed_amount)
     })?;
 
+    let msg = get_cw20_transfer_to_msg(
+        &info.sender,
+        &cfg.cw20_token_address,
+        amount,
+    )?;
+
     let res = Response::new()
-        .add_message(WasmMsg::Execute {
-            contract_addr: config.cw20_token_address.to_string(),
-            funds: vec![],
-            msg: to_binary(&Cw20ExecuteMsg::Transfer {
-                recipient: info.sender.to_string(),
-                amount,
-            })?,
-        })
+        .add_message(msg)
         .add_attribute("action", "claim_airdrop")
-        .add_attribute("address", info.sender)
-        .add_attribute("amount", amount);
+        .add_attribute("player", info.sender)
+        .add_attribute("airdrop_amount", amount);
     Ok(res)
 }
 
@@ -465,12 +455,15 @@ pub fn execute_claim_prize(
         return Err(ContractError::BidNotPresent {});
     };
 
+    let cfg = CONFIG.load(deps.storage)?;
     let winners = WINNERS.load(deps.storage)?;
     let ticket_price = TICKET_PRICE.load(deps.storage)?;
     let ticket_prize = TOTAL_TICKET_PRIZE.load(deps.storage)?;
     let airdrop_prize = TOTAL_AIRDROP_GAME_AMOUNT.load(deps.storage)?;
-    let cfg = CONFIG.load(deps.storage)?;
 
+    // Every winner will receive two prize: one given by the tickets of the game and
+    // one given by an incentive from the tokens airdrop. For both of them the
+    // amount received is given by the total divided by the number of winners.
     let sender_ticket_prize = ticket_prize.checked_div(winners).unwrap();
     let sender_airdrop_prize = airdrop_prize.checked_div(winners).unwrap();
 
@@ -486,13 +479,11 @@ pub fn execute_claim_prize(
         sender_airdrop_prize,
     )?);
 
-    // Update claimed amount to reflect
+    // Update botht the airdrop and the prize claimed amount.
     CLAIMED_AIRDROP_AMOUNT.update(deps.storage, |mut claimed_amount| -> StdResult<_> {
         claimed_amount += sender_airdrop_prize;
         Ok(claimed_amount)
     })?;
-
-    // Update claimed amount to reflect
     CLAIMED_PRIZE_AMOUNT.update(deps.storage, |mut claimed_amount| -> StdResult<_> {
         claimed_amount += sender_ticket_prize;
         Ok(claimed_amount)
@@ -507,6 +498,9 @@ pub fn execute_claim_prize(
     Ok(res)
 }
 
+// ======================================================================================
+// Withdraw of unclaimed tokens
+// ======================================================================================
 pub fn execute_withdraw_airdrop(
     deps: DepsMut,
     _env: Env,
@@ -520,10 +514,9 @@ pub fn execute_withdraw_airdrop(
         return Err(ContractError::Unauthorized {});
     }
 
+    // Check that the claiming prize stage has ended.
     let stage_claim_prize = STAGE_CLAIM_PRIZE.load(deps.storage)?;
     let stage_claim_prize_end = (stage_claim_prize.start + stage_claim_prize.duration)?;
-
-    // If stage claim airdrop is not over yet, can't withdraw.
     if !stage_claim_prize_end.is_triggered(&_env.block) {
         return Err(ContractError::ClaimPrizeStageNotFinished {});
     }
@@ -533,15 +526,14 @@ pub fn execute_withdraw_airdrop(
     let claimed_amount = CLAIMED_AIRDROP_AMOUNT.load(deps.storage)?;
     let amount = total_amount_airdrop + total_amount_prize - claimed_amount;
 
-    let mut transfer_msgs: Vec<CosmosMsg> = vec![];
-    transfer_msgs.push(get_cw20_transfer_to_msg(
+    let msg = get_cw20_transfer_to_msg(
         &address,
         &cfg.cw20_token_address,
         amount,
-    )?);
+    )?;
 
     let res = Response::new()
-        .add_messages(transfer_msgs)
+        .add_message(msg)
         .add_attribute("action", "withdraw_airdrop")
         .add_attribute("address", address)
         .add_attribute("amount", amount);
@@ -562,10 +554,9 @@ pub fn execute_withdraw_prize(
         return Err(ContractError::Unauthorized {});
     }
 
+    // Check that the claiming prize stage has ended.
     let stage_claim_prize = STAGE_CLAIM_PRIZE.load(deps.storage)?;
     let stage_claim_prize_end = (stage_claim_prize.start + stage_claim_prize.duration)?;
-
-    // If stage claim prize is not over yet, can't withdraw.
     if !stage_claim_prize_end.is_triggered(&_env.block) {
         return Err(ContractError::ClaimPrizeStageNotFinished {});
     }
@@ -574,51 +565,21 @@ pub fn execute_withdraw_prize(
     let claimed_prize = CLAIMED_PRIZE_AMOUNT.load(deps.storage)?;
     let amount = total_prize - claimed_prize;
 
-    let mut transfer_msgs: Vec<CosmosMsg> = vec![];
-    transfer_msgs.push(get_cw20_transfer_to_msg(
-        &address,
-        &cfg.cw20_token_address,
+    let ticket_price = TICKET_PRICE.load(deps.storage)?;
+
+    let msg = get_bank_transfer_to_msg(
+        &info.sender,
+        &ticket_price.denom,
         amount,
-    )?);
+    );
 
     let res = Response::new()
-        .add_messages(transfer_msgs)
-        .add_attribute("action", "withdraw_airdrop")
+        .add_message(msg)
+        .add_attribute("action", "withdraw_prize")
         .add_attribute("address", address)
         .add_attribute("amount", amount);
 
     Ok(res)
-}
-
-fn get_amount_for_denom(coins: &[Coin], denom: &str) -> Coin {
-    let amount: Uint128 = coins
-        .iter()
-        .filter(|c| c.denom == denom)
-        .map(|c| c.amount)
-        .sum();
-    Coin {
-        amount,
-        denom: denom.to_string(),
-    }
-}
-
-fn get_cw20_transfer_to_msg(
-    recipient: &Addr,
-    token_addr: &Addr,
-    token_amount: Uint128,
-) -> StdResult<CosmosMsg> {
-    // create transfer cw20 msg
-    let transfer_cw20_msg = Cw20ExecuteMsg::Transfer {
-        recipient: recipient.into(),
-        amount: token_amount,
-    };
-    let exec_cw20_transfer = WasmMsg::Execute {
-        contract_addr: token_addr.into(),
-        msg: to_binary(&transfer_cw20_msg)?,
-        funds: vec![],
-    };
-    let cw20_transfer_cosmos_msg: CosmosMsg = exec_cw20_transfer.into();
-    Ok(cw20_transfer_cosmos_msg)
 }
 
 // ======================================================================================
@@ -696,6 +657,37 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, C
     Ok(Response::default())
 }
 
+pub fn check_if_valid_stage(
+    env: Env,
+    stage: Stage,
+    stage_name: String,
+) -> Result<(), ContractError> {
+    // The stage has not started.
+    if !stage.start.is_triggered(&env.block) {
+        return Err(ContractError::StageNotStarted { stage_name });
+    }
+
+    // The stage has ended.
+    let stage_end = (stage.start + stage.duration)?;
+    if stage_end.is_triggered(&env.block) {
+        return Err(ContractError::StageEnded { stage_name });
+    }
+
+    Ok(())
+}
+
+fn get_amount_for_denom(coins: &[Coin], denom: &str) -> Coin {
+    let amount: Uint128 = coins
+        .iter()
+        .filter(|c| c.denom == denom)
+        .map(|c| c.amount)
+        .sum();
+    Coin {
+        amount,
+        denom: denom.to_string(),
+    }
+}
+
 fn get_bank_transfer_to_msg(recipient: &Addr, denom: &str, native_amount: Uint128) -> CosmosMsg {
     let transfer_bank_msg = cosmwasm_std::BankMsg::Send {
         to_address: recipient.into(),
@@ -707,6 +699,24 @@ fn get_bank_transfer_to_msg(recipient: &Addr, denom: &str, native_amount: Uint12
 
     let transfer_bank_cosmos_msg: CosmosMsg = transfer_bank_msg.into();
     transfer_bank_cosmos_msg
+}
+
+fn get_cw20_transfer_to_msg(
+    recipient: &Addr,
+    token_addr: &Addr,
+    token_amount: Uint128,
+) -> StdResult<CosmosMsg> {
+    let transfer_cw20_msg = Cw20ExecuteMsg::Transfer {
+        recipient: recipient.into(),
+        amount: token_amount,
+    };
+    let exec_cw20_transfer = WasmMsg::Execute {
+        contract_addr: token_addr.into(),
+        msg: to_binary(&transfer_cw20_msg)?,
+        funds: vec![],
+    };
+    let cw20_transfer_cosmos_msg: CosmosMsg = exec_cw20_transfer.into();
+    Ok(cw20_transfer_cosmos_msg)
 }
 
 #[cfg(test)]

@@ -79,6 +79,6 @@ pub enum ContractError {
     #[error("{second} stage overlaps {first} stage.")]
     StagesOverlap { first: String, second: String },
 
-    #[error("Bin not exists. Number of bins: {bins}.")]
-    BinNotExists { bins: u8 },
+    #[error("Bin does not exist. Number of bins: {bins}.")]
+    BinDoesNotExist { bins: u8 },
 }
