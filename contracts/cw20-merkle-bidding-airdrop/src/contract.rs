@@ -16,7 +16,7 @@ use crate::msg::{
 };
 use crate::state::{
     Config, Stage, BIDS, CLAIMED_AIRDROP_AMOUNT, CLAIM_AIRDROP, CONFIG, STAGE_BID,
-    STAGE_CLAIM_AIRDROP, STAGE_CLAIM_PRIZE, TICKET_PRICE, TOTAL_AIRDROP_AMOUNT, BINS, MERKLE_ROOT_AIRDROP, MERKLE_ROOT_GAME,
+    STAGE_CLAIM_AIRDROP, STAGE_CLAIM_PRIZE, TICKET_PRICE, TOTAL_AIRDROP_AMOUNT, BINS, MERKLE_ROOT_AIRDROP, MERKLE_ROOT_GAME, CLAIM_PRIZE, WINNERS,
 };
 
 // Version info, for migration info
@@ -80,6 +80,7 @@ pub fn instantiate(
     STAGE_CLAIM_PRIZE.save(deps.storage, &msg.stage_claim_prize)?;
     TICKET_PRICE.save(deps.storage, &msg.ticket_price)?;
     BINS.save(deps.storage, &msg.bins)?;
+    WINNERS.save(deps.storage, &Uint128::new(0))?;
 
     Ok(Response::default())
 }
@@ -92,9 +93,15 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::UpdateConfig { new_owner } => execute_update_config(deps, env, info, new_owner),
-        ExecuteMsg::Bid { bin } => execute_bid(deps, env, info, bin),
-        ExecuteMsg::ChangeBid { bin } => execute_change_bid(deps, env, info, bin),
+        ExecuteMsg::UpdateConfig {
+            new_owner
+        } => execute_update_config(deps, env, info, new_owner),
+        ExecuteMsg::Bid {
+            bin 
+        } => execute_bid(deps, env, info, bin),
+        ExecuteMsg::ChangeBid {
+            bin
+        } => execute_change_bid(deps, env, info, bin),
         ExecuteMsg::RemoveBid {} => execute_remove_bid(deps, env, info),
         ExecuteMsg::RegisterMerkleRoots {
             merkle_root_airdrop,
@@ -103,12 +110,13 @@ pub fn execute(
         } => execute_register_merkle_roots(deps, env, info, merkle_root_airdrop, total_amount, merkle_root_game),
         ExecuteMsg::ClaimAirdrop {
             amount,
-            proof
-        } => execute_claim_airdrop(deps, env, info, amount, proof),
+            proof_airdrop,
+            proof_game
+        } => execute_claim_airdrop(deps, env, info, amount, proof_airdrop, proof_game),
         ExecuteMsg::ClaimPrize { amount, proof } => todo!(),
-        ExecuteMsg::WithdrawAirdrop { address } => {
-            execute_withdraw_airdrop(deps, env, info, &address)
-        }
+        ExecuteMsg::WithdrawAirdrop {
+            address 
+        } => execute_withdraw_airdrop(deps, env, info, &address),
         ExecuteMsg::WithdrawPrize { address } => todo!(),
     }
 }
@@ -318,7 +326,8 @@ pub fn execute_claim_airdrop(
     env: Env,
     info: MessageInfo,
     amount: Uint128,
-    proof: Vec<String>,
+    proof_airdrop: Vec<String>,
+    proof_game: Vec<String>
 ) -> Result<Response, ContractError> {
     let stage_claim_airdrop = STAGE_CLAIM_AIRDROP.load(deps.storage)?;
     let stage_name = String::from("claim airdrop");
@@ -331,7 +340,8 @@ pub fn execute_claim_airdrop(
     }
 
     let config = CONFIG.load(deps.storage)?;
-    let merkle_root = MERKLE_ROOT_AIRDROP.load(deps.storage)?;
+    let merkle_root_airdrop = MERKLE_ROOT_AIRDROP.load(deps.storage)?;
+    let merkle_root_game = MERKLE_ROOT_GAME.load(deps.storage)?;
 
     // Compare proofs: the proof sent by the user must be the same of the one
     // produced with info.sender address.
@@ -341,7 +351,7 @@ pub fn execute_claim_airdrop(
         .try_into()
         .map_err(|_| ContractError::WrongLength {})?;
 
-    let hash = proof.into_iter().try_fold(hash, |hash, p| {
+    let hash = proof_airdrop.into_iter().try_fold(hash, |hash, p| {
         let mut proof_buf = [0; 32];
         hex::decode_to_slice(p, &mut proof_buf)?;
         let mut hashes = [hash, proof_buf];
@@ -353,11 +363,44 @@ pub fn execute_claim_airdrop(
     })?;
 
     let mut root_buf: [u8; 32] = [0; 32];
-    hex::decode_to_slice(merkle_root, &mut root_buf)?;
+    hex::decode_to_slice(merkle_root_airdrop, &mut root_buf)?;
     if root_buf != hash {
         return Err(ContractError::VerificationFailed {});
     }
 
+    // verify not claimed
+    let sender_bid = BIDS.may_load(deps.storage, &info.sender)?;
+    if sender_bid.is_some() {
+        let sender_bid = sender_bid.unwrap();
+
+        let user_input = format!("{}{}", info.sender, sender_bid);
+        let hash = sha2::Sha256::digest(user_input.as_bytes())
+            .as_slice()
+            .try_into()
+            .map_err(|_| ContractError::WrongLength {})?;
+
+        let hash = proof_game.into_iter().try_fold(hash, |hash, p| {
+            let mut proof_buf = [0; 32];
+            hex::decode_to_slice(p, &mut proof_buf)?;
+            let mut hashes = [hash, proof_buf];
+            hashes.sort_unstable();
+            sha2::Sha256::digest(&hashes.concat())
+                .as_slice()
+                .try_into()
+                .map_err(|_| ContractError::WrongLength {})
+        })?;
+
+        let mut root_buf: [u8; 32] = [0; 32];
+        hex::decode_to_slice(merkle_root_game, &mut root_buf)?;
+        if root_buf == hash {
+            CLAIM_PRIZE.save(deps.storage, &info.sender, &false)?;
+            WINNERS.update(deps.storage, |mut winners_number| -> StdResult<_> {
+                winners_number += Uint128::new(1);
+                Ok(winners_number)
+            })?;
+        }
+    }
+        
     // Update claim index.
     CLAIM_AIRDROP.save(deps.storage, &info.sender, &true)?;
 

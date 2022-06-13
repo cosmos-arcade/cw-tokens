@@ -54,10 +54,12 @@ pub const CLAIMED_AIRDROP_AMOUNT: Item<Uint128> = Item::new(CLAIMED_AIRDROP_AMOU
 pub const BINS_PREFIX: &str = "bins";
 pub const BINS: Item<u8> = Item::new(BIDS_PREFIX);
 
+pub const WINNERS_PREFIX: &str = "winners";
+pub const WINNERS: Item<Uint128> = Item::new(WINNERS_PREFIX);
+
 /// Total amount of tokens to airdrop.
 pub const TOTAL_AIRDROP_AMOUNT_PREFIX: &str = "total_amount";
 pub const TOTAL_AIRDROP_AMOUNT: Item<Uint128> = Item::new(TOTAL_AIRDROP_AMOUNT_PREFIX);
-
 
 /// Storage to save if an addres has claimed the airdrop or not.
 pub const CLAIM_AIRDROP_PREFIX: &str = "claim_airdrop";

@@ -58,7 +58,8 @@ pub enum ExecuteMsg {
     ClaimAirdrop {
         amount: Uint128,
         /// Proof is hex-encoded merkle proof.
-        proof: Vec<String>,
+        proof_airdrop: Vec<String>,
+        proof_game: Vec<String>
     },
     ClaimPrize {
         amount: Uint128,

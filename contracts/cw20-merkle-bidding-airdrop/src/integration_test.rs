@@ -743,6 +743,7 @@ fn claim() {
 
     let (stage_bid, stage_claim_airdrop, stage_claim_prize) = valid_stages();
 
+    // Create the game's token contract
     let cw20_token_address = Some(cw20_token.addr().to_string()).unwrap();
     let game_addr = create_game(
         &mut router,
@@ -760,12 +761,13 @@ fn claim() {
     let info = get_config(&router, &game_addr);
     assert_eq!(info.cw20_token_address, cw20_token_address);
 
+    // Check initial token balance of the owner
     let owner_balance = cw20_token
         .balance::<App, Addr, MyCustomQuery>(&router, owner.clone())
         .unwrap();
     assert_eq!(owner_balance, Uint128::new(1_000_000));
 
-    // Check that the correct Merkle roots are saved.
+    // Check that the correct Merkle roots have been saved.
     let register_merkle_root_msg = ExecuteMsg::RegisterMerkleRoots {
         merkle_root_airdrop: test_data_airdrop.root,
         total_amount: Some(Uint128::new(1_000)),
@@ -787,11 +789,16 @@ fn claim() {
         "b45c1ea28b26adb13e412933c9e055b01fdf7585304b00cd8f1cb220aa6c5e88".to_string()
     );
     assert_eq!(info.total_amount, Uint128::new(1_000));
+    assert_eq!(
+        info.merkle_root_game,
+        "14b47be0716eebb3b9e16fb2d06dc3376dd2534705d9a9d38f6fbcc6f4f1c7d2".to_string()
+    );
 
+    // Check that initially no token have been claimed.
     let info = get_claimed_amount_airdrop(&router, &game_addr);
     assert_eq!(info.total_claimed, Uint128::new(0));
 
-    // Transfer token to the game contract
+    // Transfer token to the game contract and verify the balance.
     let send_token_msg = cw20::Cw20ExecuteMsg::Transfer {
         recipient: game_addr.clone().into(),
         amount: Uint128::new(110),
@@ -814,7 +821,8 @@ fn claim() {
     // Claim not allowed if claiming stage not active.
     let claim_airdrop_msg = ExecuteMsg::ClaimAirdrop {
         amount: test_data_airdrop.amount,
-        proof: test_data_airdrop.proofs.clone(),
+        proof_airdrop: test_data_airdrop.proofs.clone(),
+        proof_game: test_data_game.proofs.clone()
     };
 
     let err = router
@@ -843,7 +851,8 @@ fn claim() {
     // Cannot be claimed a different amount than the one in the Merkle tree.
     let claim_airdrop_msg = ExecuteMsg::ClaimAirdrop {
         amount: Uint128::new(1_000),
-        proof: test_data_airdrop.proofs.clone(),
+        proof_airdrop: test_data_airdrop.proofs.clone(),
+        proof_game: test_data_game.proofs.clone()
     };
 
     let err = router
@@ -860,9 +869,11 @@ fn claim() {
         err.downcast().unwrap()
     );
 
+    // Claim the correct ammount and verify balances.
     let claim_airdrop_msg = ExecuteMsg::ClaimAirdrop {
         amount: test_data_airdrop.amount.clone(),
-        proof: test_data_airdrop.proofs.clone(),
+        proof_airdrop: test_data_airdrop.proofs.clone(),
+        proof_game: test_data_game.proofs.clone()
     };
 
     let _res = router
@@ -881,9 +892,11 @@ fn claim() {
 
     let claim_airdrop_msg = ExecuteMsg::ClaimAirdrop {
         amount: test_data_airdrop.amount.clone(),
-        proof: test_data_airdrop.proofs.clone(),
+        proof_airdrop: test_data_airdrop.proofs.clone(),
+        proof_game: test_data_game.proofs.clone()
     };
 
+    // Airdrop cannot be claimed more than once.
     let err = router
         .execute_contract(
             Addr::unchecked(test_data_airdrop.account.clone()),
@@ -900,6 +913,7 @@ fn claim() {
         .unwrap();
     assert_eq!(game_balance, Uint128::new(10));
 
+    // Verify total claimed amount
     let info = get_claimed_amount_airdrop(&router, &game_addr);
     assert_eq!(info.total_claimed, Uint128::new(100));
 }
