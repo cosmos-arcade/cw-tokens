@@ -37,7 +37,7 @@ pub const STAGE_CLAIM_AIRDROP: Item<Stage> = Item::new(STAGE_CLAIM_AIRDROP_KEY);
 pub const STAGE_CLAIM_PRIZE_KEY: &str = "stage_claim_prize";
 pub const STAGE_CLAIM_PRIZE: Item<Stage> = Item::new(STAGE_CLAIM_PRIZE_KEY);
 
-/// Storage to save the first game ticket prize.
+/// Storage to save the first game ticket price.
 pub const TICKET_PRICE_KEY: &str = "ticket_price";
 pub const TICKET_PRICE: Item<Uint128> = Item::new(TICKET_PRICE_KEY);
 
@@ -56,6 +56,9 @@ pub const BINS: Item<u8> = Item::new(BIDS_PREFIX);
 
 pub const WINNERS_PREFIX: &str = "winners";
 pub const WINNERS: Item<Uint128> = Item::new(WINNERS_PREFIX);
+
+pub const TICKET_PRIZE_KEY: &str = "ticket_prize";
+pub const TICKET_PRIZE: Item<Uint128> = Item::new(TICKET_PRIZE_KEY);
 
 /// Total amount of tokens to airdrop.
 pub const TOTAL_AIRDROP_AMOUNT_PREFIX: &str = "total_amount";

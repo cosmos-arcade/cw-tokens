@@ -61,10 +61,7 @@ pub enum ExecuteMsg {
         proof_airdrop: Vec<String>,
         proof_game: Vec<String>
     },
-    ClaimPrize {
-        amount: Uint128,
-        proof: Vec<String>,
-    },
+    ClaimPrize {},
     // Withdraw the remaining Airdrop tokens after expire time (only owner)
     WithdrawAirdrop {
         address: Addr,

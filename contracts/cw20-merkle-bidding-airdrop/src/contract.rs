@@ -16,7 +16,7 @@ use crate::msg::{
 };
 use crate::state::{
     Config, Stage, BIDS, CLAIMED_AIRDROP_AMOUNT, CLAIM_AIRDROP, CONFIG, STAGE_BID,
-    STAGE_CLAIM_AIRDROP, STAGE_CLAIM_PRIZE, TICKET_PRICE, TOTAL_AIRDROP_AMOUNT, BINS, MERKLE_ROOT_AIRDROP, MERKLE_ROOT_GAME, CLAIM_PRIZE, WINNERS,
+    STAGE_CLAIM_AIRDROP, STAGE_CLAIM_PRIZE, TICKET_PRICE, TOTAL_AIRDROP_AMOUNT, BINS, MERKLE_ROOT_AIRDROP, MERKLE_ROOT_GAME, CLAIM_PRIZE, WINNERS, TICKET_PRIZE,
 };
 
 // Version info, for migration info
@@ -81,6 +81,7 @@ pub fn instantiate(
     TICKET_PRICE.save(deps.storage, &msg.ticket_price)?;
     BINS.save(deps.storage, &msg.bins)?;
     WINNERS.save(deps.storage, &Uint128::new(0))?;
+    TICKET_PRIZE.save(deps.storage, &Uint128::new(0))?;
 
     Ok(Response::default())
 }
@@ -113,7 +114,7 @@ pub fn execute(
             proof_airdrop,
             proof_game
         } => execute_claim_airdrop(deps, env, info, amount, proof_airdrop, proof_game),
-        ExecuteMsg::ClaimPrize { amount, proof } => todo!(),
+        ExecuteMsg::ClaimPrize {} => execute_claim_prize(deps, env, info),
         ExecuteMsg::WithdrawAirdrop {
             address 
         } => execute_withdraw_airdrop(deps, env, info, &address),
@@ -207,6 +208,11 @@ pub fn execute_bid(
     }
 
     BIDS.save(deps.storage, &info.sender, &bin)?;
+    // Add ticket prize to the final prize.
+    TICKET_PRIZE.update(deps.storage, |mut actual_prize| -> StdResult<_> {
+        actual_prize += ticket_price;
+        Ok(actual_prize)
+    });
 
     let res = Response::new()
         .add_messages(transfer_msg)
@@ -262,14 +268,20 @@ pub fn execute_remove_bid(
     // ELSE: if the bid is present, remove it and send back the ticket price to the sender.
     if !BIDS.has(deps.storage, &info.sender) {
         return Err(ContractError::BidNotPresent {});
-    } else {
-        BIDS.remove(deps.storage, &info.sender);
-        transfer_msg.push(get_bank_transfer_to_msg(
-            &info.sender,
-            "ujuno",
-            ticket_price,
-        ));
     }
+
+    BIDS.remove(deps.storage, &info.sender);
+    transfer_msg.push(get_bank_transfer_to_msg(
+        &info.sender,
+        "ujuno",
+        ticket_price,
+    ));
+
+    // Remove ticket prize from the final prize.
+    TICKET_PRIZE.update(deps.storage, |mut actual_prize| -> StdResult<_> {
+        actual_prize -= ticket_price;
+        Ok(actual_prize)
+    });
 
     let res = Response::new()
         .add_messages(transfer_msg)
@@ -425,17 +437,36 @@ pub fn execute_claim_airdrop(
     Ok(res)
 }
 
+pub fn execute_claim_prize(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo
+) -> Result<Response, ContractError> {
+    let stage_claim_prize = STAGE_CLAIM_PRIZE.load(deps.storage)?;
+    let stage_name = String::from("claim prize");
+    check_if_valid_stage(env, stage_claim_prize, stage_name)?;
+
+    // Verify that the user has not already made the claim.
+    let claimed = CLAIM_PRIZE.may_load(deps.storage, &info.sender)?;
+    if let Some(already_claimed) = claimed {
+        return Err(ContractError::AlreadyClaimed {});
+    };
+
+    let winners = WINNERS.load(deps.storage)?;
+
+
+    
+}
+
 pub fn execute_withdraw_airdrop(
     deps: DepsMut,
     _env: Env,
     info: MessageInfo,
     address: &Addr,
 ) -> Result<Response, ContractError> {
-    // authorize owner
+    // Just the contract owner can withdraw the remaining tokens.
     let cfg = CONFIG.load(deps.storage)?;
-    // If owner not present you can't withdraw
     let owner = cfg.owner.ok_or(ContractError::Unauthorized {})?;
-    // Just the owner can withdraw
     if info.sender != owner {
         return Err(ContractError::Unauthorized {});
     }
@@ -443,7 +474,7 @@ pub fn execute_withdraw_airdrop(
     let stage_claim_airdrop = STAGE_CLAIM_AIRDROP.load(deps.storage)?;
     let stage_claim_airdrop_end = (stage_claim_airdrop.start + stage_claim_airdrop.duration)?;
 
-    // if Stage Claim Airdrop is not over yet, can't withdraw
+    // If stage claim airdrop is not over yet, can't withdraw.
     if !stage_claim_airdrop_end.is_triggered(&_env.block) {
         return Err(ContractError::ClaimAirdropStageNotFinished {});
     }
