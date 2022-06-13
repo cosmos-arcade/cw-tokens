@@ -16,7 +16,9 @@ use crate::msg::{
 };
 use crate::state::{
     Config, Stage, BIDS, CLAIMED_AIRDROP_AMOUNT, CLAIM_AIRDROP, CONFIG, STAGE_BID,
-    STAGE_CLAIM_AIRDROP, STAGE_CLAIM_PRIZE, TICKET_PRICE, TOTAL_AIRDROP_AMOUNT, BINS, MERKLE_ROOT_AIRDROP, MERKLE_ROOT_GAME, CLAIM_PRIZE, WINNERS, TICKET_PRIZE, TICKET_PRICE_KEY, TOTAL_GAME_AMOUNT, CLAIMED_PRIZE_AMOUNT,
+    STAGE_CLAIM_AIRDROP, STAGE_CLAIM_PRIZE, TICKET_PRICE, TOTAL_AIRDROP_AMOUNT, BINS,
+    MERKLE_ROOT_AIRDROP, MERKLE_ROOT_GAME, CLAIM_PRIZE, WINNERS, TOTAL_TICKET_PRIZE,
+    TOTAL_AIRDROP_GAME_AMOUNT, CLAIMED_PRIZE_AMOUNT,
 };
 
 // Version info, for migration info
@@ -81,7 +83,7 @@ pub fn instantiate(
     TICKET_PRICE.save(deps.storage, &msg.ticket_price)?;
     BINS.save(deps.storage, &msg.bins)?;
     WINNERS.save(deps.storage, &Uint128::new(0))?;
-    TICKET_PRIZE.save(deps.storage, &Uint128::new(0))?;
+    TOTAL_TICKET_PRIZE.save(deps.storage, &Uint128::new(0))?;
 
     Ok(Response::default())
 }
@@ -212,7 +214,7 @@ pub fn execute_bid(
 
     BIDS.save(deps.storage, &info.sender, &bin)?;
     // Add ticket prize to the final prize.
-    TICKET_PRIZE.update(deps.storage, |mut actual_prize| -> StdResult<_> {
+    TOTAL_TICKET_PRIZE.update(deps.storage, |mut actual_prize| -> StdResult<_> {
         actual_prize += ticket_price.amount;
         Ok(actual_prize)
     })?;
@@ -281,7 +283,7 @@ pub fn execute_remove_bid(
     ));
 
     // Remove ticket prize from the final prize.
-    TICKET_PRIZE.update(deps.storage, |mut actual_prize| -> StdResult<_> {
+    TOTAL_TICKET_PRIZE.update(deps.storage, |mut actual_prize| -> StdResult<_> {
         actual_prize -= ticket_price.amount;
         Ok(actual_prize)
     })?;
@@ -329,7 +331,7 @@ pub fn execute_register_merkle_roots(
     MERKLE_ROOT_AIRDROP.save(deps.storage, &merkle_root_airdrop)?;
     MERKLE_ROOT_GAME.save(deps.storage, &merkle_root_game)?;
     TOTAL_AIRDROP_AMOUNT.save(deps.storage, &amount_airdrop)?;
-    TOTAL_GAME_AMOUNT.save(deps.storage, &amount_game)?;
+    TOTAL_AIRDROP_GAME_AMOUNT.save(deps.storage, &amount_game)?;
     CLAIMED_AIRDROP_AMOUNT.save(deps.storage, &Uint128::zero())?;
 
     Ok(Response::new().add_attributes(vec![
@@ -465,8 +467,8 @@ pub fn execute_claim_prize(
 
     let winners = WINNERS.load(deps.storage)?;
     let ticket_price = TICKET_PRICE.load(deps.storage)?;
-    let ticket_prize = TICKET_PRIZE.load(deps.storage)?;
-    let airdrop_prize = TOTAL_GAME_AMOUNT.load(deps.storage)?;
+    let ticket_prize = TOTAL_TICKET_PRIZE.load(deps.storage)?;
+    let airdrop_prize = TOTAL_AIRDROP_GAME_AMOUNT.load(deps.storage)?;
     let cfg = CONFIG.load(deps.storage)?;
 
     let sender_ticket_prize = ticket_prize.checked_div(winners).unwrap();
@@ -527,7 +529,7 @@ pub fn execute_withdraw_airdrop(
     }
 
     let total_amount_airdrop = TOTAL_AIRDROP_AMOUNT.load(deps.storage)?;
-    let total_amount_prize = TOTAL_GAME_AMOUNT.load(deps.storage)?;
+    let total_amount_prize = TOTAL_AIRDROP_GAME_AMOUNT.load(deps.storage)?;
     let claimed_amount = CLAIMED_AIRDROP_AMOUNT.load(deps.storage)?;
     let amount = total_amount_airdrop + total_amount_prize - claimed_amount;
 
@@ -568,7 +570,7 @@ pub fn execute_withdraw_prize(
         return Err(ContractError::ClaimPrizeStageNotFinished {});
     }
 
-    let total_prize = TICKET_PRIZE.load(deps.storage)?;
+    let total_prize = TOTAL_TICKET_PRIZE.load(deps.storage)?;
     let claimed_prize = CLAIMED_PRIZE_AMOUNT.load(deps.storage)?;
     let amount = total_prize - claimed_prize;
 
