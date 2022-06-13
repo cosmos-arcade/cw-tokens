@@ -1,4 +1,4 @@
-use cosmwasm_std::{Addr, Uint128};
+use cosmwasm_std::{Addr, Uint128, Coin};
 use cw_storage_plus::{Item, Map};
 use cw_utils::{Duration, Scheduled};
 use schemars::JsonSchema;
@@ -39,7 +39,7 @@ pub const STAGE_CLAIM_PRIZE: Item<Stage> = Item::new(STAGE_CLAIM_PRIZE_KEY);
 
 /// Storage to save the first game ticket price.
 pub const TICKET_PRICE_KEY: &str = "ticket_price";
-pub const TICKET_PRICE: Item<Uint128> = Item::new(TICKET_PRICE_KEY);
+pub const TICKET_PRICE: Item<Coin> = Item::new(TICKET_PRICE_KEY);
 
 pub const MERKLE_ROOT_AIRDROP_PREFIX: &str = "merkle_root_airdrop";
 pub const MERKLE_ROOT_AIRDROP: Item<String> = Item::new(MERKLE_ROOT_AIRDROP_PREFIX);
@@ -61,8 +61,11 @@ pub const TICKET_PRIZE_KEY: &str = "ticket_prize";
 pub const TICKET_PRIZE: Item<Uint128> = Item::new(TICKET_PRIZE_KEY);
 
 /// Total amount of tokens to airdrop.
-pub const TOTAL_AIRDROP_AMOUNT_PREFIX: &str = "total_amount";
+pub const TOTAL_AIRDROP_AMOUNT_PREFIX: &str = "total_amount_airdrop";
 pub const TOTAL_AIRDROP_AMOUNT: Item<Uint128> = Item::new(TOTAL_AIRDROP_AMOUNT_PREFIX);
+
+pub const TOTAL_GAME_AMOUNT_PREFIX: &str = "total_amount_game";
+pub const TOTAL_GAME_AMOUNT: Item<Uint128> = Item::new(TOTAL_GAME_AMOUNT_PREFIX);
 
 /// Storage to save if an addres has claimed the airdrop or not.
 pub const CLAIM_AIRDROP_PREFIX: &str = "claim_airdrop";

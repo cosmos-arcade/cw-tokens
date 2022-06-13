@@ -16,7 +16,7 @@ use crate::msg::{
 };
 use crate::state::{
     Config, Stage, BIDS, CLAIMED_AIRDROP_AMOUNT, CLAIM_AIRDROP, CONFIG, STAGE_BID,
-    STAGE_CLAIM_AIRDROP, STAGE_CLAIM_PRIZE, TICKET_PRICE, TOTAL_AIRDROP_AMOUNT, BINS, MERKLE_ROOT_AIRDROP, MERKLE_ROOT_GAME, CLAIM_PRIZE, WINNERS, TICKET_PRIZE,
+    STAGE_CLAIM_AIRDROP, STAGE_CLAIM_PRIZE, TICKET_PRICE, TOTAL_AIRDROP_AMOUNT, BINS, MERKLE_ROOT_AIRDROP, MERKLE_ROOT_GAME, CLAIM_PRIZE, WINNERS, TICKET_PRIZE, TICKET_PRICE_KEY, TOTAL_GAME_AMOUNT,
 };
 
 // Version info, for migration info
@@ -106,9 +106,10 @@ pub fn execute(
         ExecuteMsg::RemoveBid {} => execute_remove_bid(deps, env, info),
         ExecuteMsg::RegisterMerkleRoots {
             merkle_root_airdrop,
-            total_amount,
-            merkle_root_game
-        } => execute_register_merkle_roots(deps, env, info, merkle_root_airdrop, total_amount, merkle_root_game),
+            total_amount_airdrop,
+            merkle_root_game,
+            total_amount_game
+        } => execute_register_merkle_roots(deps, env, info, merkle_root_airdrop, total_amount_airdrop, merkle_root_game, total_amount_game),
         ExecuteMsg::ClaimAirdrop {
             amount,
             proof_airdrop,
@@ -187,7 +188,7 @@ pub fn execute_bid(
 
     // If ticket price not paid, bid is not allowed.
     let fund_sent = get_amount_for_denom(&info.funds, "ujuno");
-    if fund_sent.amount < ticket_price {
+    if fund_sent.amount < ticket_price.amount {
         return Err(ContractError::TicketPriceNotPaid {});
     }
 
@@ -199,18 +200,18 @@ pub fn execute_bid(
 
     // If sender sent funds higher than ticket price, return change.
     let mut transfer_msg: Vec<CosmosMsg> = vec![];
-    if fund_sent.amount > ticket_price {
+    if fund_sent.amount > ticket_price.amount {
         transfer_msg.push(get_bank_transfer_to_msg(
             &info.sender,
             &fund_sent.denom,
-            fund_sent.amount - ticket_price,
+            fund_sent.amount - ticket_price.amount,
         ))
     }
 
     BIDS.save(deps.storage, &info.sender, &bin)?;
     // Add ticket prize to the final prize.
     TICKET_PRIZE.update(deps.storage, |mut actual_prize| -> StdResult<_> {
-        actual_prize += ticket_price;
+        actual_prize += ticket_price.amount;
         Ok(actual_prize)
     });
 
@@ -274,12 +275,12 @@ pub fn execute_remove_bid(
     transfer_msg.push(get_bank_transfer_to_msg(
         &info.sender,
         "ujuno",
-        ticket_price,
+        ticket_price.amount,
     ));
 
     // Remove ticket prize from the final prize.
     TICKET_PRIZE.update(deps.storage, |mut actual_prize| -> StdResult<_> {
-        actual_prize -= ticket_price;
+        actual_prize -= ticket_price.amount;
         Ok(actual_prize)
     });
 
@@ -287,7 +288,7 @@ pub fn execute_remove_bid(
         .add_messages(transfer_msg)
         .add_attribute("action", "remove_bid")
         .add_attribute("player", info.sender)
-        .add_attribute("ticket_price_payback", ticket_price);
+        .add_attribute("ticket_price_payback", ticket_price.amount);
     Ok(res)
 }
 
@@ -296,8 +297,9 @@ pub fn execute_register_merkle_roots(
     _env: Env,
     info: MessageInfo,
     merkle_root_airdrop: String,
-    total_amount: Option<Uint128>,
+    total_amount_airdrop: Option<Uint128>,
     merkle_root_game: String,
+    total_amount_game: Option<Uint128>,
 ) -> Result<Response, ContractError> {
     // Just the contract owner can load the Merkle root.
     let cfg = CONFIG.load(deps.storage)?;
@@ -318,17 +320,20 @@ pub fn execute_register_merkle_roots(
     hex::decode_to_slice(&merkle_root_game, &mut root_buf)?;
 
     // Save total airdropped amount.
-    let amount = total_amount.unwrap_or_else(Uint128::zero);
+    let amount_airdrop = total_amount_airdrop.unwrap_or_else(Uint128::zero);
+    // Save prize from airdropped token.
+    let amount_game = total_amount_game.unwrap_or_else(Uint128::zero);
 
     MERKLE_ROOT_AIRDROP.save(deps.storage, &merkle_root_airdrop)?;
     MERKLE_ROOT_GAME.save(deps.storage, &merkle_root_game)?;
-    TOTAL_AIRDROP_AMOUNT.save(deps.storage, &amount)?;
+    TOTAL_AIRDROP_AMOUNT.save(deps.storage, &amount_airdrop)?;
+    TOTAL_GAME_AMOUNT.save(deps.storage, &amount_game)?;
     CLAIMED_AIRDROP_AMOUNT.save(deps.storage, &Uint128::zero())?;
 
     Ok(Response::new().add_attributes(vec![
         attr("action", "register_merkle_roots"),
         attr("merkle_root_airdrop", merkle_root_airdrop),
-        attr("total_amount", amount),
+        attr("total_amount_airdrop", amount_airdrop),
         attr("merkle_root_game", merkle_root_game),
     ]))
 }
@@ -449,13 +454,32 @@ pub fn execute_claim_prize(
     // Verify that the user has not already made the claim.
     let claimed = CLAIM_PRIZE.may_load(deps.storage, &info.sender)?;
     if let Some(already_claimed) = claimed {
-        return Err(ContractError::AlreadyClaimed {});
+        if already_claimed {
+            return Err(ContractError::AlreadyClaimed {});
+        }
+    } else {
+        return Err(ContractError::BidNotPresent {});
     };
 
     let winners = WINNERS.load(deps.storage)?;
+    let ticket_price = TICKET_PRICE.load(deps.storage)?;
+    let ticket_prize = TICKET_PRIZE.load(deps.storage)?;
 
+    let sender_prize = ticket_prize.checked_div(winners).unwrap();
 
-    
+    let mut transfer_msg: Vec<CosmosMsg> = vec![];
+    transfer_msg.push(get_bank_transfer_to_msg(
+        &info.sender,
+        &ticket_price.denom,
+        sender_prize,
+    ));
+
+    let res = Response::new()
+        .add_messages(transfer_msg)
+        .add_attribute("action", "claim_prize")
+        .add_attribute("player", info.sender)
+        .add_attribute("prize_from_tickets", ticket_price.amount);
+    Ok(res)
 }
 
 pub fn execute_withdraw_airdrop(
@@ -654,7 +678,10 @@ mod tests {
         let msg = InstantiateMsg {
             owner: Some("owner0000".to_string()),
             cw20_token_address: "random0000".to_string(),
-            ticket_price: Uint128::new(10),
+            ticket_price: Coin {
+                denom: "ujuno".into(),
+                amount: Uint128::new(10)
+            },
             bins: 10,
             stage_bid: stage_bid,
             stage_claim_airdrop: stage_claim_airdrop,
@@ -687,7 +714,10 @@ mod tests {
         let msg = InstantiateMsg {
             owner: Some("owner0000".to_string()),
             cw20_token_address: "random0000".to_string(),
-            ticket_price: Uint128::new(10),
+            ticket_price: Coin {
+                denom: "ujuno".into(),
+                amount: Uint128::new(10)
+            },
             bins: 10,
             stage_bid: stage_bid,
             stage_claim_airdrop: stage_claim_airdrop,

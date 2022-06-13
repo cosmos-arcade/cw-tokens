@@ -2,7 +2,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::state::Stage;
-use cosmwasm_std::{Addr, Uint128};
+use cosmwasm_std::{Addr, Uint128, Coin};
 
 // ======================================================================================
 // Entrypoints data structures
@@ -14,7 +14,7 @@ pub struct InstantiateMsg {
     /// Address of the token.
     pub cw20_token_address: String,
     /// Price of the ticket to bid.
-    pub ticket_price: Uint128,
+    pub ticket_price: Coin,
     /// The winning probability is associasted to the number of bins.
     pub bins: u8,
     /// Info related to the bidding stage.
@@ -50,8 +50,9 @@ pub enum ExecuteMsg {
     RegisterMerkleRoots {
         /// MerkleRoot is hex-encoded merkle root.
         merkle_root_airdrop: String,
-        total_amount: Option<Uint128>,
-        merkle_root_game: String
+        total_amount_airdrop: Option<Uint128>,
+        merkle_root_game: String,
+        total_amount_game: Option<Uint128>
     },
     // Claim does not check if contract has enough funds, owner must ensure it.
     /// Claim airdrop bin.
