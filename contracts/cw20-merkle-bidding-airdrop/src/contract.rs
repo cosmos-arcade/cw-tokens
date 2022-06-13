@@ -16,7 +16,7 @@ use crate::msg::{
 };
 use crate::state::{
     Config, Stage, BIDS, CLAIMED_AIRDROP_AMOUNT, CLAIM_AIRDROP, CONFIG, STAGE_BID,
-    STAGE_CLAIM_AIRDROP, STAGE_CLAIM_PRIZE, TICKET_PRICE, TOTAL_AIRDROP_AMOUNT, BINS, MERKLE_ROOT_AIRDROP, MERKLE_ROOT_GAME, CLAIM_PRIZE, WINNERS, TICKET_PRIZE, TICKET_PRICE_KEY, TOTAL_GAME_AMOUNT,
+    STAGE_CLAIM_AIRDROP, STAGE_CLAIM_PRIZE, TICKET_PRICE, TOTAL_AIRDROP_AMOUNT, BINS, MERKLE_ROOT_AIRDROP, MERKLE_ROOT_GAME, CLAIM_PRIZE, WINNERS, TICKET_PRIZE, TICKET_PRICE_KEY, TOTAL_GAME_AMOUNT, CLAIMED_PRIZE_AMOUNT,
 };
 
 // Version info, for migration info
@@ -119,7 +119,9 @@ pub fn execute(
         ExecuteMsg::WithdrawAirdrop {
             address 
         } => execute_withdraw_airdrop(deps, env, info, &address),
-        ExecuteMsg::WithdrawPrize { address } => todo!(),
+        ExecuteMsg::WithdrawPrize {
+            address
+        } => execute_withdraw_prize(deps, env, info, &address)
     }
 }
 
@@ -213,7 +215,7 @@ pub fn execute_bid(
     TICKET_PRIZE.update(deps.storage, |mut actual_prize| -> StdResult<_> {
         actual_prize += ticket_price.amount;
         Ok(actual_prize)
-    });
+    })?;
 
     let res = Response::new()
         .add_messages(transfer_msg)
@@ -274,7 +276,7 @@ pub fn execute_remove_bid(
     BIDS.remove(deps.storage, &info.sender);
     transfer_msg.push(get_bank_transfer_to_msg(
         &info.sender,
-        "ujuno",
+        &ticket_price.denom,
         ticket_price.amount,
     ));
 
@@ -282,7 +284,7 @@ pub fn execute_remove_bid(
     TICKET_PRIZE.update(deps.storage, |mut actual_prize| -> StdResult<_> {
         actual_prize -= ticket_price.amount;
         Ok(actual_prize)
-    });
+    })?;
 
     let res = Response::new()
         .add_messages(transfer_msg)
@@ -464,21 +466,42 @@ pub fn execute_claim_prize(
     let winners = WINNERS.load(deps.storage)?;
     let ticket_price = TICKET_PRICE.load(deps.storage)?;
     let ticket_prize = TICKET_PRIZE.load(deps.storage)?;
+    let airdrop_prize = TOTAL_GAME_AMOUNT.load(deps.storage)?;
+    let cfg = CONFIG.load(deps.storage)?;
 
-    let sender_prize = ticket_prize.checked_div(winners).unwrap();
+    let sender_ticket_prize = ticket_prize.checked_div(winners).unwrap();
+    let sender_airdrop_prize = airdrop_prize.checked_div(winners).unwrap();
 
-    let mut transfer_msg: Vec<CosmosMsg> = vec![];
-    transfer_msg.push(get_bank_transfer_to_msg(
+    let mut transfer_msgs: Vec<CosmosMsg> = vec![];
+    transfer_msgs.push(get_bank_transfer_to_msg(
         &info.sender,
         &ticket_price.denom,
-        sender_prize,
+        sender_ticket_prize,
     ));
+    transfer_msgs.push(get_cw20_transfer_to_msg(
+        &info.sender,
+        &cfg.cw20_token_address,
+        sender_airdrop_prize,
+    )?);
+
+    // Update claimed amount to reflect
+    CLAIMED_AIRDROP_AMOUNT.update(deps.storage, |mut claimed_amount| -> StdResult<_> {
+        claimed_amount += sender_airdrop_prize;
+        Ok(claimed_amount)
+    })?;
+
+    // Update claimed amount to reflect
+    CLAIMED_PRIZE_AMOUNT.update(deps.storage, |mut claimed_amount| -> StdResult<_> {
+        claimed_amount += sender_ticket_prize;
+        Ok(claimed_amount)
+    })?;
 
     let res = Response::new()
-        .add_messages(transfer_msg)
+        .add_messages(transfer_msgs)
         .add_attribute("action", "claim_prize")
         .add_attribute("player", info.sender)
-        .add_attribute("prize_from_tickets", ticket_price.amount);
+        .add_attribute("prize_from_tickets", sender_ticket_prize)
+        .add_attribute("prize_from_airdrop", sender_airdrop_prize);
     Ok(res)
 }
 
@@ -495,17 +518,59 @@ pub fn execute_withdraw_airdrop(
         return Err(ContractError::Unauthorized {});
     }
 
-    let stage_claim_airdrop = STAGE_CLAIM_AIRDROP.load(deps.storage)?;
-    let stage_claim_airdrop_end = (stage_claim_airdrop.start + stage_claim_airdrop.duration)?;
+    let stage_claim_prize = STAGE_CLAIM_PRIZE.load(deps.storage)?;
+    let stage_claim_prize_end = (stage_claim_prize.start + stage_claim_prize.duration)?;
 
     // If stage claim airdrop is not over yet, can't withdraw.
-    if !stage_claim_airdrop_end.is_triggered(&_env.block) {
-        return Err(ContractError::ClaimAirdropStageNotFinished {});
+    if !stage_claim_prize_end.is_triggered(&_env.block) {
+        return Err(ContractError::ClaimPrizeStageNotFinished {});
     }
 
-    let total_amount = TOTAL_AIRDROP_AMOUNT.load(deps.storage)?;
+    let total_amount_airdrop = TOTAL_AIRDROP_AMOUNT.load(deps.storage)?;
+    let total_amount_prize = TOTAL_GAME_AMOUNT.load(deps.storage)?;
     let claimed_amount = CLAIMED_AIRDROP_AMOUNT.load(deps.storage)?;
-    let amount = total_amount - claimed_amount;
+    let amount = total_amount_airdrop + total_amount_prize - claimed_amount;
+
+    let mut transfer_msgs: Vec<CosmosMsg> = vec![];
+    transfer_msgs.push(get_cw20_transfer_to_msg(
+        &address,
+        &cfg.cw20_token_address,
+        amount,
+    )?);
+
+    let res = Response::new()
+        .add_messages(transfer_msgs)
+        .add_attribute("action", "withdraw_airdrop")
+        .add_attribute("address", address)
+        .add_attribute("amount", amount);
+
+    Ok(res)
+}
+
+pub fn execute_withdraw_prize(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    address: &Addr,
+) -> Result<Response, ContractError> {
+    // Just the contract owner can withdraw the remaining tokens.
+    let cfg = CONFIG.load(deps.storage)?;
+    let owner = cfg.owner.ok_or(ContractError::Unauthorized {})?;
+    if info.sender != owner {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    let stage_claim_prize = STAGE_CLAIM_PRIZE.load(deps.storage)?;
+    let stage_claim_prize_end = (stage_claim_prize.start + stage_claim_prize.duration)?;
+
+    // If stage claim prize is not over yet, can't withdraw.
+    if !stage_claim_prize_end.is_triggered(&_env.block) {
+        return Err(ContractError::ClaimPrizeStageNotFinished {});
+    }
+
+    let total_prize = TICKET_PRIZE.load(deps.storage)?;
+    let claimed_prize = CLAIMED_PRIZE_AMOUNT.load(deps.storage)?;
+    let amount = total_prize - claimed_prize;
 
     let mut transfer_msgs: Vec<CosmosMsg> = vec![];
     transfer_msgs.push(get_cw20_transfer_to_msg(

@@ -37,6 +37,9 @@ pub enum ContractError {
     #[error("Claim Prize stage has expired")]
     ClaimPrizeStageExpired {},
 
+    #[error("Claim Prize stage is not over yet")]
+    ClaimPrizeStageNotFinished {},
+
     #[error("The {stage_name} has not started")]
     StageNotStarted { stage_name: String },
 

@@ -51,6 +51,10 @@ pub const MERKLE_ROOT_GAME: Item<String> = Item::new(MERKLE_ROOT_GAME_PREFIX);
 pub const CLAIMED_AIRDROP_AMOUNT_PREFIX: &str = "claimed_amount";
 pub const CLAIMED_AIRDROP_AMOUNT: Item<Uint128> = Item::new(CLAIMED_AIRDROP_AMOUNT_PREFIX);
 
+/// Amount of airdropped tokens claimed.
+pub const CLAIMED_PRIZE_AMOUNT_PREFIX: &str = "claimed_prize";
+pub const CLAIMED_PRIZE_AMOUNT: Item<Uint128> = Item::new(CLAIMED_PRIZE_AMOUNT_PREFIX);
+
 pub const BINS_PREFIX: &str = "bins";
 pub const BINS: Item<u8> = Item::new(BIDS_PREFIX);
 

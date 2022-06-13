@@ -69,7 +69,7 @@ pub enum ExecuteMsg {
     },
     // Withdraw the remaining Prize tokens after expire time (only owner)
     WithdrawPrize {
-        address: String,
+        address: Addr,
     },
 }
 
