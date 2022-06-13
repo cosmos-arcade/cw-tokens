@@ -26,6 +26,17 @@ const CONTRACT_NAME: &str = "crates.io:cw20-merkle-airdrop";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    let version = get_contract_version(deps.storage)?;
+    if version.contract != CONTRACT_NAME {
+        return Err(ContractError::CannotMigrate {
+            previous_contract: version.contract,
+        });
+    }
+    Ok(Response::default())
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
     env: Env,
@@ -541,6 +552,7 @@ pub fn execute_withdraw_airdrop(
     Ok(res)
 }
 
+// TODO: si potrebbe unire a quello sopra.
 pub fn execute_withdraw_prize(
     deps: DepsMut,
     _env: Env,
@@ -646,17 +658,6 @@ pub fn query_airdrop_claimed_amount(deps: Deps) -> StdResult<AmountResponse> {
 // ======================================================================================
 // Utils
 // ======================================================================================
-#[cfg_attr(not(feature = "library"), entry_point)]
-pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    let version = get_contract_version(deps.storage)?;
-    if version.contract != CONTRACT_NAME {
-        return Err(ContractError::CannotMigrate {
-            previous_contract: version.contract,
-        });
-    }
-    Ok(Response::default())
-}
-
 pub fn check_if_valid_stage(
     env: Env,
     stage: Stage,

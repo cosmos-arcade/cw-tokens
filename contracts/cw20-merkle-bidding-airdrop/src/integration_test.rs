@@ -5,9 +5,6 @@ use std::borrow::BorrowMut;
 use cosmwasm_std::{coins, from_slice, Addr, BlockInfo, Coin, CustomQuery, Empty, Event, Uint128};
 use cw20::{Cw20Coin, Cw20Contract, Cw20ExecuteMsg, Denom};
 
-use cw20_base::contract::execute_send;
-use cw20_base::ContractError as Cw20Error;
-
 use anyhow::Result as AnyResult;
 
 use cw_multi_test::{App, Contract, ContractWrapper, Executor};
@@ -63,11 +60,16 @@ fn valid_stages() -> (Stage, Stage, Stage) {
     return (stage_bid, stage_claim_airdrop, stage_claim_prize);
 }
 
+// ======================================================================================
+// Contracts
+// ======================================================================================
+/// Create the game contract.
 pub fn contract_game() -> Box<dyn Contract<Empty>> {
     let contract = ContractWrapper::new(execute, instantiate, query);
     Box::new(contract)
 }
 
+/// Create the token contract.
 pub fn contract_cw20() -> Box<dyn Contract<Empty>> {
     let contract = ContractWrapper::new(
         cw20_base::contract::execute,
@@ -77,10 +79,11 @@ pub fn contract_cw20() -> Box<dyn Contract<Empty>> {
     Box::new(contract)
 }
 
+/// Instantiate the game contract.
 pub fn create_game(
     router: &mut App,
     owner: &Addr,
-    ticket_price: Uint128,
+    ticket_price: Coin,
     bins: u8,
     stage_bid: Stage,
     stage_claim_airdrop: Stage,
@@ -98,9 +101,16 @@ pub fn create_game(
         stage_claim_airdrop,
         stage_claim_prize,
     };
-    router.instantiate_contract(game_id, owner.clone(), &msg, &[], "game", None)
+    router.instantiate_contract(
+        game_id, 
+        owner.clone(), 
+        &msg, 
+        &[], 
+        "game", 
+        None)
 }
 
+/// Instantiate the token contract.
 fn create_cw20(
     router: &mut App,
     owner: &Addr,
@@ -121,11 +131,20 @@ fn create_cw20(
         marketing: None,
     };
     let addr = router
-        .instantiate_contract(cw20_id, owner.clone(), &msg, &[], "CASH", None)
+        .instantiate_contract(
+            cw20_id, 
+            owner.clone(), 
+            &msg, 
+            &[], 
+            "TOKEN", 
+            None)
         .unwrap();
     Cw20Contract(addr)
 }
 
+// ======================================================================================
+// Queries
+// ======================================================================================
 fn get_stages(router: &App, contract_addr: &Addr) -> StagesResponse {
     router
         .wrap()
@@ -168,15 +187,40 @@ fn bank_balance(router: &mut App, addr: &Addr, denom: String) -> Coin {
         .unwrap()
 }
 
+// ======================================================================================
+// Global variables
+// ======================================================================================
+pub fn global_variables() -> (String, Addr, Coin, u8, Vec<Coin>) {
+
+    let native_token_denom = String::from("ujuno");
+    // Owner of the game contract.
+    let owner: Addr = Addr::unchecked("owner");
+    // Ticket of the game.
+    let ticket_price: Coin = Coin {denom: String::from("ujuno"), amount: Uint128::new(10)};
+    // Number of bins of the game.
+    let bins: u8 = 10;
+    // Initial balance of the owner of the game.
+    let funds: Vec<Coin> = vec![
+        Coin {denom: native_token_denom.clone(), amount: Uint128::new(1_000_000)},
+        Coin {denom: "ubtc".into(), amount: Uint128::new(1_000_000)}
+    ];
+    let global_variables: (String, Addr, Coin, u8, Vec<Coin>) = (
+        native_token_denom,
+        owner,
+        ticket_price,
+        bins,
+        funds
+    );
+    return global_variables
+}
+
+// ======================================================================================
+// Tests instantiate
+// ======================================================================================
 #[test]
 fn test_instantiate() {
     let mut router = mock_app();
-
-    const NATIVE_TOKEN_DENOM: &str = "ujuno";
-    let owner = Addr::unchecked("owner");
-    let ticket_price = Uint128::new(10);
-    let funds = coins(1_000_000, NATIVE_TOKEN_DENOM);
-    let bins: u8 = 10;
+    let (_, owner,ticket_price, bins, funds) = global_variables();
 
     router.borrow_mut().init_modules(|router, _, storage| {
         router.bank.init_balance(storage, &owner, funds).unwrap()
@@ -184,23 +228,24 @@ fn test_instantiate() {
 
     let (stage_bid, stage_claim_airdrop, stage_claim_prize) = &valid_stages();
 
-    // Valid instantiation
+    // Valid instantiation.
     let game_addr = create_game(
         &mut router,
         &owner,
-        ticket_price,
+        ticket_price.clone(),
         bins,
         stage_bid.clone(),
         stage_claim_airdrop.clone(),
         stage_claim_prize.clone(),
         None,
-    )
-    .unwrap();
+    ).unwrap();
 
     let info = get_stages(&router, &game_addr);
     assert_eq!(info.stage_bid.start, Scheduled::AtHeight(200_000));
+    assert_eq!(info.stage_claim_airdrop.start, Scheduled::AtHeight(201_000));
+    assert_eq!(info.stage_claim_prize.start, Scheduled::AtHeight(202_000));
 
-    // Trigger error StageOverlap
+    // Trigger StageOverlap error.
     let mut stage_claim_airdrop_err = stage_claim_airdrop.clone();
     stage_claim_airdrop_err.start = Scheduled::AtHeight(100_000);
     let first = String::from("bid");
@@ -208,20 +253,17 @@ fn test_instantiate() {
     let err = create_game(
         &mut router,
         &owner,
-        ticket_price,
+        ticket_price.clone(),
         bins,
         stage_bid.clone(),
         stage_claim_airdrop_err,
         stage_claim_prize.clone(),
         None,
-    )
-    .unwrap_err();
-    assert_eq!(
-        ContractError::StagesOverlap { first, second },
-        err.downcast().unwrap()
-    );
+    ).unwrap_err();
 
-    // Trigger error BidStartPassed
+    assert_eq!(ContractError::StagesOverlap { first, second }, err.downcast().unwrap());
+
+    // Trigger BidStartPassed error.
     let current_block = router.block_info();
     router.set_block(BlockInfo {
         height: 300_000,
@@ -238,8 +280,8 @@ fn test_instantiate() {
         stage_claim_airdrop.clone(),
         stage_claim_prize.clone(),
         None,
-    )
-    .unwrap_err();
+    ).unwrap_err();
+
     assert_eq!(ContractError::BidStartPassed {}, err.downcast().unwrap());
 }
 
@@ -249,12 +291,7 @@ fn test_instantiate() {
 #[test]
 fn valid_bid_no_change() {
     let mut router = mock_app();
-
-    const NATIVE_TOKEN_DENOM: &str = "ujuno";
-    let owner = Addr::unchecked("owner");
-    let ticket_price = Uint128::new(10);
-    let funds = coins(1_000_000, NATIVE_TOKEN_DENOM);
-    let bins: u8 = 10;
+    let (native_token_denom, owner,ticket_price, bins, funds) = global_variables();
 
     router.borrow_mut().init_modules(|router, _, storage| {
         router.bank.init_balance(storage, &owner, funds).unwrap()
@@ -271,62 +308,54 @@ fn valid_bid_no_change() {
         stage_claim_airdrop.clone(),
         stage_claim_prize.clone(),
         None,
-    )
-    .unwrap();
+    ).unwrap();
 
-    // Trigger bidding start
-    let current_block = router.block_info();
-    router.set_block(BlockInfo {
-        height: 200_001,
-        time: current_block.time,
-        chain_id: current_block.chain_id,
-    });
-
-    let bid_msg = ExecuteMsg::Bid {
-        bin: 1,
-    };
-
-    let valid_bid_no_change = Coin {
-        denom: NATIVE_TOKEN_DENOM.into(),
-        amount: Uint128::new(10),
-    };
-
-    let _res = router
-        .execute_contract(
-            owner.clone(),
-            game_addr.clone(),
-            &bid_msg,
-            &[valid_bid_no_change.clone()],
-        )
-        .unwrap();
-
-    let balance: Coin = bank_balance(&mut router, &owner, NATIVE_TOKEN_DENOM.to_string());
-    assert_eq!(Uint128::new(999_990), balance.amount);
-
+    // Cannot bid if bid stage not started.
+    let bid_msg = ExecuteMsg::Bid { bin: 1 };
+    let bid = Coin {denom: native_token_denom.clone().into(),amount: Uint128::new(10)};
     let err = router
         .execute_contract(
             owner.clone(),
             game_addr.clone(),
             &bid_msg,
-            &[valid_bid_no_change.clone()],
-        )
-        .unwrap_err();
+            &[bid.clone()],
+        ).unwrap_err();
+    let balance: Coin = bank_balance(&mut router, &owner, native_token_denom.clone().to_string());
+    assert_eq!(ContractError::StageNotStarted { stage_name: "bid".into() }, err.downcast().unwrap());
+    assert_eq!(Uint128::new(1_000_000), balance.amount);
 
-    assert_eq!(
-        ContractError::CannotBidMoreThanOnce {},
-        err.downcast().unwrap()
-    );
+    // Trigger bid stage start.
+    let current_block = router.block_info();
+    router.set_block(BlockInfo {height: 200_001, time: current_block.time, chain_id: current_block.chain_id});
+
+    // Make a valid bid without a change.
+    let bid = Coin {denom: native_token_denom.clone().into(),amount: Uint128::new(10)};
+    let _res = router
+        .execute_contract(
+            owner.clone(),
+            game_addr.clone(),
+            &bid_msg,
+            &[bid.clone()],
+        ).unwrap();
+    let balance: Coin = bank_balance(&mut router, &owner, native_token_denom.to_string());
+    assert_eq!(Uint128::new(999_990), balance.amount);
+
+    // Trigger CannotBidMoreThanOnce error.
+    let err = router
+        .execute_contract(
+            owner.clone(),
+            game_addr.clone(),
+            &bid_msg,
+            &[bid.clone()],
+        ).unwrap_err();
+
+    assert_eq!(ContractError::CannotBidMoreThanOnce {}, err.downcast().unwrap());
 }
-
+ 
 #[test]
 fn valid_bid_with_change() {
     let mut router = mock_app();
-
-    const NATIVE_TOKEN_DENOM: &str = "ujuno";
-    let owner = Addr::unchecked("owner");
-    let ticket_price = Uint128::new(10);
-    let funds = coins(1_000_000, NATIVE_TOKEN_DENOM);
-    let bins: u8 = 10;
+    let (native_token_denom, owner,ticket_price, bins, funds) = global_variables();
 
     router.borrow_mut().init_modules(|router, _, storage| {
         router.bank.init_balance(storage, &owner, funds).unwrap()
@@ -343,57 +372,38 @@ fn valid_bid_with_change() {
         stage_claim_airdrop.clone(),
         stage_claim_prize.clone(),
         None,
-    )
-    .unwrap();
+    ).unwrap();
 
-    // Trigger bidding start
+    // Trigger bid stage start.
     let current_block = router.block_info();
-    router.set_block(BlockInfo {
-        height: 200_001,
-        time: current_block.time,
-        chain_id: current_block.chain_id,
-    });
+    router.set_block(BlockInfo {height: 200_001, time: current_block.time, chain_id: current_block.chain_id});
 
-    let bid_msg = ExecuteMsg::Bid {
-        bin: 1,
-    };
-
-    let valid_bid_no_change = Coin {
-        denom: NATIVE_TOKEN_DENOM.into(),
-        amount: Uint128::new(20),
-    };
-
+    // Check that the response has the correct trasnfer message
+    let bid_msg = ExecuteMsg::Bid { bin: 1 };
+    let bid = Coin {denom: native_token_denom.clone().into(),amount: Uint128::new(20)};
     let res = router
         .execute_contract(
             owner.clone(),
             game_addr.clone(),
             &bid_msg,
-            &[valid_bid_no_change.clone()],
-        )
-        .unwrap();
-
-    let event_transfer = Event::new("transfer").add_attributes(vec![
-        ("recipient", "owner"),
-        ("sender", "contract0"),
-        ("amount", "10ujuno"),
+            &[bid.clone()],
+        ).unwrap();
+    let event_transfer = Event::new("transfer")
+        .add_attributes(vec![
+            ("recipient", "owner"),
+            ("sender", "contract0"),
+            ("amount", "10ujuno"),
     ]);
-
     let check_event_transfer = res.has_event(&event_transfer);
+    let balance: Coin = bank_balance(&mut router, &owner, native_token_denom.to_string());
     assert_eq!(1, check_event_transfer as i32);
-
-    let balance: Coin = bank_balance(&mut router, &owner, NATIVE_TOKEN_DENOM.to_string());
     assert_eq!(Uint128::new(999_990), balance.amount);
 }
 
 #[test]
 fn invalid_bid() {
     let mut router = mock_app();
-
-    const NATIVE_TOKEN_DENOM: &str = "ujuno";
-    let owner = Addr::unchecked("owner");
-    let ticket_price = Uint128::new(10);
-    let funds = coins(1_000_000, NATIVE_TOKEN_DENOM);
-    let bins: u8 = 10;
+    let (native_token_denom, owner,ticket_price, bins, funds) = global_variables();
 
     router.borrow_mut().init_modules(|router, _, storage| {
         router.bank.init_balance(storage, &owner, funds).unwrap()
@@ -410,50 +420,43 @@ fn invalid_bid() {
         stage_claim_airdrop.clone(),
         stage_claim_prize.clone(),
         None,
-    )
-    .unwrap();
+    ).unwrap();
 
-    // Trigger bidding start
+    // Trigger bid stage start.
     let current_block = router.block_info();
-    router.set_block(BlockInfo {
-        height: 200_001,
-        time: current_block.time,
-        chain_id: current_block.chain_id,
-    });
+    router.set_block(BlockInfo {height: 200_001, time: current_block.time, chain_id: current_block.chain_id});
 
-    let bid_msg = ExecuteMsg::Bid {
-        bin: 1,
-    };
-
-    let valid_bid_no_change = Coin {
-        denom: NATIVE_TOKEN_DENOM.into(),
-        amount: Uint128::new(1),
-    };
-
+    // Trigger TicketPriceNotPaid error for insufficient funds.
+    let bid_msg = ExecuteMsg::Bid { bin: 1 };
+    let bid = Coin {denom: native_token_denom.into(), amount: Uint128::new(1)};
     let err = router
         .execute_contract(
             owner.clone(),
             game_addr.clone(),
             &bid_msg,
-            &[valid_bid_no_change],
-        )
-        .unwrap_err();
+            &[bid],
+        ).unwrap_err();
 
-    assert_eq!(
-        ContractError::TicketPriceNotPaid {},
-        err.downcast().unwrap()
-    );
+    assert_eq!(ContractError::TicketPriceNotPaid {}, err.downcast().unwrap());
+
+    // Trigger TicketPriceNotPaid error for wrong funds.
+    let bid_msg = ExecuteMsg::Bid { bin: 1 };
+    let bid = Coin {denom: "ubtc".into(), amount: Uint128::new(10)};
+    let err = router
+        .execute_contract(
+            owner.clone(),
+            game_addr.clone(),
+            &bid_msg,
+            &[bid],
+        ).unwrap_err();
+
+    assert_eq!(ContractError::TicketPriceNotPaid {}, err.downcast().unwrap());
 }
 
 #[test]
 fn change_bid() {
     let mut router = mock_app();
-
-    const NATIVE_TOKEN_DENOM: &str = "ujuno";
-    let owner = Addr::unchecked("owner");
-    let ticket_price = Uint128::new(10);
-    let funds = coins(1_000_000, NATIVE_TOKEN_DENOM);
-    let bins: u8 = 10;
+    let (native_token_denom, owner,ticket_price, bins, funds) = global_variables();
 
     router.borrow_mut().init_modules(|router, _, storage| {
         router.bank.init_balance(storage, &owner, funds).unwrap()
@@ -501,7 +504,7 @@ fn change_bid() {
     };
 
     let valid_bid_no_change = Coin {
-        denom: NATIVE_TOKEN_DENOM.into(),
+        denom: native_token_denom.into(),
         amount: Uint128::new(10),
     };
 
@@ -548,12 +551,7 @@ fn change_bid() {
 #[test]
 fn remove_bid() {
     let mut router = mock_app();
-
-    const NATIVE_TOKEN_DENOM: &str = "ujuno";
-    let owner = Addr::unchecked("owner");
-    let ticket_price = Uint128::new(10);
-    let funds = coins(1_000_000, NATIVE_TOKEN_DENOM);
-    let bins: u8 = 10;
+    let (native_token_denom, owner,ticket_price, bins, funds) = global_variables();
 
     router.borrow_mut().init_modules(|router, _, storage| {
         router.bank.init_balance(storage, &owner, funds).unwrap()
@@ -599,7 +597,7 @@ fn remove_bid() {
     };
 
     let valid_bid_no_change = Coin {
-        denom: NATIVE_TOKEN_DENOM.into(),
+        denom: native_token_denom.clone().into(),
         amount: Uint128::new(10),
     };
 
@@ -612,7 +610,7 @@ fn remove_bid() {
         )
         .unwrap();
 
-    let balance: Coin = bank_balance(&mut router, &owner, NATIVE_TOKEN_DENOM.to_string());
+    let balance: Coin = bank_balance(&mut router, &owner, native_token_denom.to_string());
     assert_eq!(Uint128::new(999_990), balance.amount);
 
     let remove_bid_msg = ExecuteMsg::RemoveBid {};
@@ -630,7 +628,7 @@ fn remove_bid() {
 
     assert_eq!(BidResponse { bid: None }, info);
 
-    let balance: Coin = bank_balance(&mut router, &owner, NATIVE_TOKEN_DENOM.to_string());
+    let balance: Coin = bank_balance(&mut router, &owner, native_token_denom.to_string());
     assert_eq!(Uint128::new(1_000_000), balance.amount);
 }
 
@@ -640,12 +638,7 @@ fn remove_bid() {
 #[test]
 fn register_merkle_root() {
     let mut router = mock_app();
-
-    const NATIVE_TOKEN_DENOM: &str = "ujuno";
-    let owner = Addr::unchecked("owner");
-    let ticket_price = Uint128::new(10);
-    let funds = coins(1_000_000, NATIVE_TOKEN_DENOM);
-    let bins: u8 = 10;
+    let (native_token_denom, owner,ticket_price, bins, funds) = global_variables();
 
     router.borrow_mut().init_modules(|router, _, storage| {
         router.bank.init_balance(storage, &owner, funds).unwrap()
@@ -668,8 +661,9 @@ fn register_merkle_root() {
     // Check Merkle roots properly saved
     let register_merkle_root_msg = ExecuteMsg::RegisterMerkleRoots {
         merkle_root_airdrop: "634de21cde1044f41d90373733b0f0fb1c1c71f9652b905cdf159e73c4cf0d37".to_string(),
-        total_amount: None,
-        merkle_root_game: "634de21cde1044f41d90373733b0f0fb1c1c71f9652b905cdf159e73c4cf0d38".to_string()
+        total_amount_airdrop: None,
+        merkle_root_game: "634de21cde1044f41d90373733b0f0fb1c1c71f9652b905cdf159e73c4cf0d38".to_string(),
+        total_amount_game: None,
     };
 
     let _res = router
@@ -718,15 +712,10 @@ struct Encoded {
 #[test]
 fn claim() {
     let mut router = mock_app();
+    let (native_token_denom, owner,ticket_price, bins, funds) = global_variables();
 
     let test_data_airdrop: Encoded = from_slice(TEST_DATA_AIRDROP).unwrap();
     let test_data_game: Encoded = from_slice(TEST_DATA_GAME).unwrap();
-
-    const NATIVE_TOKEN_DENOM: &str = "ujuno";
-    let owner = Addr::unchecked("owner");
-    let ticket_price = Uint128::new(10);
-    let funds = coins(1_000_000, NATIVE_TOKEN_DENOM);
-    let bins: u8 = 10;
 
     router.borrow_mut().init_modules(|router, _, storage| {
         router.bank.init_balance(storage, &owner, funds).unwrap()
@@ -770,8 +759,9 @@ fn claim() {
     // Check that the correct Merkle roots have been saved.
     let register_merkle_root_msg = ExecuteMsg::RegisterMerkleRoots {
         merkle_root_airdrop: test_data_airdrop.root,
-        total_amount: Some(Uint128::new(1_000)),
-        merkle_root_game: test_data_game.root
+        total_amount_airdrop: Some(Uint128::new(1_000)),
+        merkle_root_game: test_data_game.root,
+        total_amount_game: Some(Uint128::new(1_000)),
     };
 
     let _res = router
