@@ -421,8 +421,6 @@ pub fn execute_claim_airdrop(
                 winners_number += Uint128::new(1);
                 Ok(winners_number)
             })?;
-        } else {
-            return Err(ContractError::VerificationFailed { merkle_root: "game".to_string() })
         }
     }
         
@@ -465,7 +463,7 @@ pub fn execute_claim_prize(
             return Err(ContractError::AlreadyClaimed {});
         }
     } else {
-        return Err(ContractError::BidNotPresent {});
+        return Err(ContractError::NoteEligible {});
     };
 
     let cfg = CONFIG.load(deps.storage)?;
@@ -491,6 +489,10 @@ pub fn execute_claim_prize(
         &cfg.cw20_token_address,
         sender_airdrop_prize,
     )?);
+
+    CLAIM_PRIZE.update(deps.storage, &info.sender, |mut _already_claimed| -> StdResult<_>{
+        Ok(true)
+    })?;
 
     // Update botht the airdrop and the prize claimed amount.
     CLAIMED_AIRDROP_AMOUNT.update(deps.storage, |mut claimed_amount| -> StdResult<_> {

@@ -28,11 +28,22 @@ pub enum ContractError {
     #[error("Cannot migrate from different contract type: {previous_contract}")]
     CannotMigrate { previous_contract: String },
 
+    // Claim airdrop errors.
+    #[error("Bid stage cannot start in the past.")]
+    BidStartPassed {},
+
+    #[error("Claim Airdrop stage hasn't begun")]
+    ClaimAirdropStageNotBegun {},
+
     #[error("Claim Airdrop stage has expired")]
     ClaimAirdropStageExpired {},
 
     #[error("Claim Airdrop stage is not over yet")]
     ClaimAirdropStageNotFinished {},
+
+    // Claim prize errors.
+    #[error("Not eligible to claim game prize")]
+    NoteEligible {},
 
     #[error("Claim Prize stage has expired")]
     ClaimPrizeStageExpired {},
@@ -40,18 +51,20 @@ pub enum ContractError {
     #[error("Claim Prize stage is not over yet")]
     ClaimPrizeStageNotFinished {},
 
+    #[error("Claim Prize stage hasn't begun")]
+    ClaimPrizeStageNotBegun {},
+
+    // General stage errors.
     #[error("The {stage_name} has not started")]
     StageNotStarted { stage_name: String },
 
     #[error("The {stage_name} has ended")]
     StageEnded { stage_name: String },
 
-    #[error("Claim Airdrop stage hasn't begun")]
-    ClaimAirdropStageNotBegun {},
+    #[error("{second} stage overlaps {first} stage.")]
+    StagesOverlap { first: String, second: String },
 
-    #[error("Claim Prize stage hasn't begun")]
-    ClaimPrizeStageNotBegun {},
-
+    // Bid errors.
     #[error("Fund sent insufficent for paying the bid price")]
     TicketPriceNotPaid {},
 
@@ -72,12 +85,6 @@ pub enum ContractError {
 
     #[error("Incorrect native denom: provided: {provided}, required: {required}")]
     IncorrectNativeDenom { provided: String, required: String },
-
-    #[error("Bid stage cannot start in the past.")]
-    BidStartPassed {},
-
-    #[error("{second} stage overlaps {first} stage.")]
-    StagesOverlap { first: String, second: String },
 
     #[error("Bin does not exist. Number of bins: {bins}.")]
     BinDoesNotExist { bins: u8 },

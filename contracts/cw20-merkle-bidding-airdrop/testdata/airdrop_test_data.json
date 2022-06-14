@@ -18,6 +18,15 @@
         "e3746c7f0e1d1f60708f9e5facaaee77424a8c5f6527f1813f60e8c3755d3b5d",
         "c30992d264c74c58b636a31098c6c27a5fc08b3f61b7eafe2a33dcb445822343"
       ]
+    },
+    {
+      "account": "wasm1a4x6au55s0fusctyj2ulrxvfpmjcxa92k7ze2v",
+      "amount": "10220",
+      "proofs": [
+        "b69c5239d434753af2f6c3eab47f4e78c436f862f14e6989be5c9027c2b6dfe2",
+        "e3746c7f0e1d1f60708f9e5facaaee77424a8c5f6527f1813f60e8c3755d3b5d",
+        "c30992d264c74c58b636a31098c6c27a5fc08b3f61b7eafe2a33dcb445822343"
+      ]
     }
   ]
 }

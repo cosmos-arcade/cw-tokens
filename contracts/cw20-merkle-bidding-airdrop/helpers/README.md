@@ -34,12 +34,12 @@ merkle-airdrop-cli generateRoot --file ../testdata/airdrop_list.json
 **Generate proof:**
 ```shell
 merkle-airdrop-cli generateProofs --file ../testdata/airdrop_game_list.json \
-  --address wasm1uy9ucvgerneekxpnfwyfnpxvlsx5dzdpf0mzjd \
-  --amount 3
+  --address wasm1a4x6au55s0fusctyj2ulrxvfpmjcxa92k7ze2v \
+  --amount 10
 
 merkle-airdrop-cli generateProofs --file ../testdata/airdrop_list.json \
-  --address wasm1uy9ucvgerneekxpnfwyfnpxvlsx5dzdpf0mzjd \
-  --amount 1010
+  --address wasm1a4x6au55s0fusctyj2ulrxvfpmjcxa92k7ze2v \
+  --amount 10220
 ```
 
 **Verify proof:**
