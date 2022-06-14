@@ -584,7 +584,7 @@ pub fn execute_withdraw_prize(
     let ticket_price = TICKET_PRICE.load(deps.storage)?;
 
     let msg = get_bank_transfer_to_msg(
-        &info.sender,
+        &address,
         &ticket_price.denom,
         amount,
     );

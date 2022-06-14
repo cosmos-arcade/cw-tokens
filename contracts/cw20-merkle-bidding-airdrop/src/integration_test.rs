@@ -1073,12 +1073,12 @@ fn claim_prize() {
     assert_eq!(info.winners_amount, Uint128::new(2));
 
     // Cannot claim prize if relative stage is not started
-    let claim_airdrop_msg = ExecuteMsg::ClaimPrize {};
+    let claim_prize_msg = ExecuteMsg::ClaimPrize {};
     let err = router
         .execute_contract(
             address_2.clone(),
             game_addr.clone(),
-            &claim_airdrop_msg,
+            &claim_prize_msg,
             &[],
         ).unwrap_err();
 
@@ -1089,12 +1089,12 @@ fn claim_prize() {
     router.set_block(BlockInfo {height: 202_001, time: current_block.time, chain_id: current_block.chain_id});
 
     // Cannot claim prize if not winning bid.
-    let claim_airdrop_msg = ExecuteMsg::ClaimPrize {};
+    let claim_prize_msg = ExecuteMsg::ClaimPrize {};
     let err = router
         .execute_contract(
             address_2.clone(),
             game_addr.clone(),
-            &claim_airdrop_msg,
+            &claim_prize_msg,
             &[],
         ).unwrap_err();
     let balance_address_2 = cw20_token
@@ -1107,12 +1107,12 @@ fn claim_prize() {
     assert_eq!(bank_balance_address_2.amount, Uint128::new(999_990));
 
     // Can claim prize if winning bid.
-    let claim_airdrop_msg = ExecuteMsg::ClaimPrize {};
+    let claim_prize_msg = ExecuteMsg::ClaimPrize {};
     let _res = router
         .execute_contract(
             address_1.clone(),
             game_addr.clone(),
-            &claim_airdrop_msg,
+            &claim_prize_msg,
             &[],
         ).unwrap();
     let balance_address_1 = cw20_token
@@ -1130,12 +1130,12 @@ fn claim_prize() {
     assert_eq!(info.total_claimed_airdrop, Uint128::new(500_000) + Uint128::new(100) + Uint128::new(1010) + Uint128::new(10220));
 
     // Claim more than once the prize is not allowed
-    let claim_airdrop_msg = ExecuteMsg::ClaimPrize {};
+    let claim_prize_msg = ExecuteMsg::ClaimPrize {};
     let err = router
         .execute_contract(
             address_1.clone(),
             game_addr.clone(),
-            &claim_airdrop_msg,
+            &claim_prize_msg,
             &[],
         ).unwrap_err();
     
@@ -1146,8 +1146,7 @@ fn claim_prize() {
 // Withdraws
 // ======================================================================================
 #[test]
-fn withdraw_airdrop() {
-    // From here is almost equal to claim_prize test.
+fn withdraw_airdrop_and_prize() {
     let mut router = mock_app();
     let (native_token_denom, owner,ticket_price, bins, funds) = global_variables();
 
@@ -1156,6 +1155,7 @@ fn withdraw_airdrop() {
 
     let address_1 = Addr::unchecked(test_data_airdrop.addresses[0].account.to_string());
     let address_2 = Addr::unchecked(test_data_airdrop.addresses[1].account.to_string());
+    let address_3 = Addr::unchecked(test_data_airdrop.addresses[2].account.to_string());
 
     // Assign native token to owner and the two addresses
     router.borrow_mut().init_modules(|router, _, storage| {
@@ -1166,6 +1166,9 @@ fn withdraw_airdrop() {
     });
     router.borrow_mut().init_modules(|router, _, storage| {
         router.bank.init_balance(storage, &address_2, funds.clone()).unwrap()
+    });
+    router.borrow_mut().init_modules(|router, _, storage| {
+        router.bank.init_balance(storage, &address_3, funds.clone()).unwrap()
     });
 
     // Create the game token contract.
@@ -1262,6 +1265,17 @@ fn withdraw_airdrop() {
             &[bid.clone()],
         ).unwrap();
 
+    // Address 3 winning bid.
+    let bid_msg = ExecuteMsg::Bid { bin: 10 };
+    let bid = Coin {denom: native_token_denom.clone().into(),amount: Uint128::new(10)};
+    let _res = router
+        .execute_contract(
+            address_3.clone(),
+            game_addr.clone(),
+            &bid_msg,
+            &[bid.clone()],
+        ).unwrap();
+
     // Trigger claiming airdrop stage.
     let current_block = router.block_info();
     router.set_block(BlockInfo {height: 201_001,time: current_block.time,chain_id: current_block.chain_id});
@@ -1294,7 +1308,107 @@ fn withdraw_airdrop() {
             &[],
         ).unwrap();
 
+    // Address 3 claim the correct ammount and verify balances and winners numbers.
+    let claim_airdrop_msg = ExecuteMsg::ClaimAirdrop {
+        amount: test_data_airdrop.addresses[2].amount,
+        proof_airdrop: test_data_airdrop.addresses[2].proofs.clone(),
+        proof_game: test_data_game.addresses[2].proofs.clone()
+    };
+    let _res = router
+        .execute_contract(
+            address_3.clone(),
+            game_addr.clone(),
+            &claim_airdrop_msg,
+            &[],
+        ).unwrap();
+
     // Trigger claim prize stage start.
     let current_block = router.block_info();
     router.set_block(BlockInfo {height: 202_001, time: current_block.time, chain_id: current_block.chain_id});
+
+    // Can claim prize if winning bid.
+    let claim_prize_msg = ExecuteMsg::ClaimPrize {};
+    let _res = router
+        .execute_contract(
+            address_1.clone(),
+            game_addr.clone(),
+            &claim_prize_msg,
+            &[],
+        ).unwrap();
+
+    // Verify claimed amounts
+    let info = get_game_amount(&router, &game_addr);
+
+    assert_eq!(info.total_ticket_prize, Uint128::new(30));
+    assert_eq!(info.total_airdrop_amount, Uint128::new(1000));
+    assert_eq!(info.total_airdrop_game_amount, Uint128::new(1000000));
+    assert_eq!(info.total_claimed_airdrop, Uint128::new(511330));
+    assert_eq!(info.total_claimed_prize, Uint128::new(15));
+
+    let withdraw_address = Addr::unchecked("withdraw0000");
+
+    // Just the owner can withdraw.
+    let claim_airdrop_msg = ExecuteMsg::WithdrawAirdrop { address: withdraw_address.clone() };
+    let err = router
+        .execute_contract(
+            address_1.clone(),
+            game_addr.clone(),
+            &claim_airdrop_msg,
+            &[],
+        ).unwrap_err();
+
+    assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
+
+    // Cannot withdraw if claim prize stage not ended.
+    let claim_airdrop_msg = ExecuteMsg::WithdrawAirdrop { address: withdraw_address.clone() };
+    let err = router
+        .execute_contract(
+            Addr::unchecked("owner0000"),
+            game_addr.clone(),
+            &claim_airdrop_msg,
+            &[],
+        ).unwrap_err();
+
+    assert_eq!(ContractError::ClaimPrizeStageNotFinished {}, err.downcast().unwrap());
+
+    // Check withdrawing address empty
+    let balance_withdraw = cw20_token
+        .balance::<App, Addr, MyCustomQuery>(&router, withdraw_address.clone())
+        .unwrap();
+    let bank_balance_withdraw: Coin = bank_balance(&mut router, &withdraw_address, native_token_denom.clone().to_string());
+
+    assert_eq!(balance_withdraw, Uint128::new(0));
+    assert_eq!(bank_balance_withdraw.amount, Uint128::new(0));
+    
+    // Trigger claim prize stage end.
+    let current_block = router.block_info();
+    router.set_block(BlockInfo {height: 203_001, time: current_block.time, chain_id: current_block.chain_id});
+
+    // Check withdraw leftover airdrop.
+    let claim_airdrop_msg = ExecuteMsg::WithdrawAirdrop { address: withdraw_address.clone() };
+    let _res = router
+        .execute_contract(
+            Addr::unchecked("owner0000"),
+            game_addr.clone(),
+            &claim_airdrop_msg,
+            &[],
+        ).unwrap();
+    let balance_withdraw = cw20_token
+        .balance::<App, Addr, MyCustomQuery>(&router, withdraw_address.clone())
+        .unwrap();
+    
+    assert_eq!(balance_withdraw, Uint128::new(489670));
+
+    // Check withdraw leftover prize.
+    let claim_airdrop_msg = ExecuteMsg::WithdrawPrize { address: withdraw_address.clone() };
+    let _res = router
+        .execute_contract(
+            Addr::unchecked("owner0000"),
+            game_addr.clone(),
+            &claim_airdrop_msg,
+            &[],
+        ).unwrap();
+    let bank_balance_withdraw: Coin = bank_balance(&mut router, &withdraw_address, native_token_denom.clone().to_string());
+
+    assert_eq!(bank_balance_withdraw.amount, Uint128::new(15));
 }
