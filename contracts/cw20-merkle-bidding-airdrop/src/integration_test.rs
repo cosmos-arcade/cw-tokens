@@ -2,8 +2,8 @@
 
 use std::borrow::BorrowMut;
 
-use cosmwasm_std::{coins, from_slice, Addr, BlockInfo, Coin, CustomQuery, Empty, Event, Uint128};
-use cw20::{Cw20Coin, Cw20Contract, Cw20ExecuteMsg, Denom};
+use cosmwasm_std::{from_slice, Addr, BlockInfo, Coin, CustomQuery, Empty, Event, Uint128};
+use cw20::{Cw20Coin, Cw20Contract};
 
 use anyhow::Result as AnyResult;
 
@@ -16,8 +16,8 @@ use crate::contract::{execute, instantiate, query};
 use crate::ContractError;
 
 use crate::msg::{
-    AmountResponse, BidResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, MerkleRootsResponse,
-    QueryMsg, StagesResponse,
+    BidResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, MerkleRootsResponse,
+    QueryMsg, StagesResponse, GameAmountResponse,
 };
 use crate::state::Stage;
 
@@ -122,7 +122,7 @@ fn create_cw20(
     let msg = cw20_base::msg::InstantiateMsg {
         name,
         symbol,
-        decimals: 2,
+        decimals: 6,
         initial_balances: vec![Cw20Coin {
             address: owner.to_string(),
             amount: balance,
@@ -173,10 +173,10 @@ fn get_merkle_roots(router: &App, contract_addr: &Addr) -> MerkleRootsResponse {
         .unwrap()
 }
 
-fn get_claimed_amount_airdrop(router: &App, contract_addr: &Addr) -> AmountResponse {
+fn get_game_amount(router: &App, contract_addr: &Addr) -> GameAmountResponse {
     router
         .wrap()
-        .query_wasm_smart(contract_addr, &QueryMsg::AirdropClaimedAmount {})
+        .query_wasm_smart(contract_addr, &QueryMsg::GameAmount {})
         .unwrap()
 }
 
@@ -473,79 +473,50 @@ fn change_bid() {
         stage_claim_airdrop.clone(),
         stage_claim_prize.clone(),
         None,
-    )
-    .unwrap();
+    ).unwrap();
 
-    // Trigger bidding start
+    // Trigger bid stage start.
     let current_block = router.block_info();
-    router.set_block(BlockInfo {
-        height: 200_001,
-        time: current_block.time,
-        chain_id: current_block.chain_id,
-    });
+    router.set_block(BlockInfo {height: 200_001, time: current_block.time, chain_id: current_block.chain_id});
 
-    let change_bid_msg = ExecuteMsg::ChangeBid {
-        bin: 2,
-    };
-
+    // Trigger BidNotPresent error.
+    let change_bid_msg = ExecuteMsg::ChangeBid { bin: 2 };
     let err = router
         .execute_contract(
             owner.clone(),
             game_addr.clone(),
             &change_bid_msg,
             &[],
-        )
-        .unwrap_err();
+        ).unwrap_err();
 
     assert_eq!(ContractError::BidNotPresent {}, err.downcast().unwrap());
 
-    let bid_msg = ExecuteMsg::Bid {
-        bin: 1,
-    };
-
-    let valid_bid_no_change = Coin {
-        denom: native_token_denom.into(),
-        amount: Uint128::new(10),
-    };
-
+    // Check correctness on bid modification.
+    let bid_msg = ExecuteMsg::Bid { bin: 1 };
+    let bid = Coin {denom: native_token_denom.into(), amount: Uint128::new(10)};
     let _res = router
         .execute_contract(
             owner.clone(),
             game_addr.clone(),
             &bid_msg,
-            &[valid_bid_no_change],
-        )
-        .unwrap();
-
+            &[bid],
+        ).unwrap();
     let info = get_bid(&router, &game_addr, owner.to_string());
-    assert_eq!(
-        BidResponse {
-            bid: Some(1)
-        },
-        info
-    );
 
-    let change_bid_msg = ExecuteMsg::ChangeBid {
-        bin: 2,
-    };
+    assert_eq!(BidResponse {bid: Some(1)}, info);
 
+    let change_bid_msg = ExecuteMsg::ChangeBid { bin: 2 };
     let _res = router
         .execute_contract(
             owner.clone(),
             game_addr.clone(),
             &change_bid_msg,
             &[],
-        )
-        .unwrap();
-
+        ).unwrap();
     let info = get_bid(&router, &game_addr, owner.to_string());
 
-    assert_eq!(
-        BidResponse {
-            bid: Some(2)
-        },
-        info
-    );
+    assert_eq!(BidResponse { bid: Some(2) }, info);
+
 }
 
 #[test]
@@ -568,68 +539,66 @@ fn remove_bid() {
         stage_claim_airdrop.clone(),
         stage_claim_prize.clone(),
         None,
-    )
-    .unwrap();
+    ).unwrap();
 
-    // Trigger bidding start
+    // Trigger bid stage start.
     let current_block = router.block_info();
-    router.set_block(BlockInfo {
-        height: 200_001,
-        time: current_block.time,
-        chain_id: current_block.chain_id,
-    });
+    router.set_block(BlockInfo {height: 200_001, time: current_block.time, chain_id: current_block.chain_id});
 
+    // Trigger BidNotPresent error.
     let remove_bid_msg = ExecuteMsg::RemoveBid {};
-
     let err = router
         .execute_contract(
             owner.clone(),
             game_addr.clone(),
             &remove_bid_msg,
             &[],
-        )
-        .unwrap_err();
+        ).unwrap_err();
 
     assert_eq!(ContractError::BidNotPresent {}, err.downcast().unwrap());
 
-    let bid_msg = ExecuteMsg::Bid {
-        bin: 1,
-    };
-
-    let valid_bid_no_change = Coin {
-        denom: native_token_denom.clone().into(),
-        amount: Uint128::new(10),
-    };
-
+    // Check that bid is removed and funds returned
+    let bid_msg = ExecuteMsg::Bid { bin: 1 };
+    let valid_bid_no_change = Coin {denom: native_token_denom.clone().into(), amount: Uint128::new(10)};
     let _res = router
         .execute_contract(
             owner.clone(),
             game_addr.clone(),
             &bid_msg,
             &[valid_bid_no_change],
-        )
-        .unwrap();
-
+        ).unwrap();
     let balance: Coin = bank_balance(&mut router, &owner, native_token_denom.to_string());
+
     assert_eq!(Uint128::new(999_990), balance.amount);
 
     let remove_bid_msg = ExecuteMsg::RemoveBid {};
-
     let _res = router
         .execute_contract(
             owner.clone(),
             game_addr.clone(),
             &remove_bid_msg,
             &[],
-        )
-        .unwrap();
-
+        ).unwrap();
     let info = get_bid(&router, &game_addr, owner.to_string());
+    let balance: Coin = bank_balance(&mut router, &owner, native_token_denom.to_string());
 
     assert_eq!(BidResponse { bid: None }, info);
-
-    let balance: Coin = bank_balance(&mut router, &owner, native_token_denom.to_string());
     assert_eq!(Uint128::new(1_000_000), balance.amount);
+
+    // Check that two consecutive remove bid is not possible.
+    let remove_bid_msg = ExecuteMsg::RemoveBid {};
+    let err = router
+        .execute_contract(
+            owner.clone(),
+            game_addr.clone(),
+            &remove_bid_msg,
+            &[],
+        ).unwrap_err();
+    let balance: Coin = bank_balance(&mut router, &owner, native_token_denom.to_string());
+
+    assert_eq!(ContractError::BidNotPresent {}, err.downcast().unwrap());
+    assert_eq!(Uint128::new(1_000_000), balance.amount);
+
 }
 
 // ======================================================================================
@@ -638,7 +607,7 @@ fn remove_bid() {
 #[test]
 fn register_merkle_root() {
     let mut router = mock_app();
-    let (native_token_denom, owner,ticket_price, bins, funds) = global_variables();
+    let (_, owner,ticket_price, bins, funds) = global_variables();
 
     router.borrow_mut().init_modules(|router, _, storage| {
         router.bank.init_balance(storage, &owner, funds).unwrap()
@@ -655,25 +624,22 @@ fn register_merkle_root() {
         stage_claim_airdrop.clone(),
         stage_claim_prize.clone(),
         None,
-    )
-    .unwrap();
+    ).unwrap();
     
-    // Check Merkle roots properly saved
+    // Check Merkle roots properly saved.
     let register_merkle_root_msg = ExecuteMsg::RegisterMerkleRoots {
         merkle_root_airdrop: "634de21cde1044f41d90373733b0f0fb1c1c71f9652b905cdf159e73c4cf0d37".to_string(),
         total_amount_airdrop: None,
         merkle_root_game: "634de21cde1044f41d90373733b0f0fb1c1c71f9652b905cdf159e73c4cf0d38".to_string(),
         total_amount_game: None,
     };
-
     let _res = router
         .execute_contract(
             Addr::unchecked("owner0000"),
             game_addr.clone(),
             &register_merkle_root_msg,
             &[],
-        )
-        .unwrap();
+        ).unwrap();
 
     let info = get_merkle_roots(&router, &game_addr);
     assert_eq!(
@@ -685,21 +651,22 @@ fn register_merkle_root() {
         "634de21cde1044f41d90373733b0f0fb1c1c71f9652b905cdf159e73c4cf0d38".to_string()
     );
 
-    // Only the game owner can register the roots
+    // Only the game owner can register the roots.
     let err = router
         .execute_contract(
             owner.clone(),
             game_addr.clone(),
             &register_merkle_root_msg,
             &[],
-        )
-        .unwrap_err();
+        ).unwrap_err();
 
     assert_eq!(ContractError::Unauthorized {}, err.downcast().unwrap());
+
+
 }
 
-const TEST_DATA_AIRDROP: &[u8] = include_bytes!("../testdata/airdrop_stage_1_test_data.json");
-const TEST_DATA_GAME: &[u8] = include_bytes!("../testdata/airdrop_game_1_test_data.json");
+const TEST_DATA_AIRDROP: &[u8] = include_bytes!("../testdata/airdrop_test_data.json");
+const TEST_DATA_GAME: &[u8] = include_bytes!("../testdata/airdrop_game_test_data.json");
 
 #[derive(Deserialize, Debug)]
 struct Encoded {
@@ -709,10 +676,13 @@ struct Encoded {
     proofs: Vec<String>,
 }
 
+// ======================================================================================
+// Claims
+// ======================================================================================
 #[test]
-fn claim() {
+fn claim_airdrop() {
     let mut router = mock_app();
-    let (native_token_denom, owner,ticket_price, bins, funds) = global_variables();
+    let (_, owner,ticket_price, bins, funds) = global_variables();
 
     let test_data_airdrop: Encoded = from_slice(TEST_DATA_AIRDROP).unwrap();
     let test_data_game: Encoded = from_slice(TEST_DATA_GAME).unwrap();
@@ -721,18 +691,18 @@ fn claim() {
         router.bank.init_balance(storage, &owner, funds).unwrap()
     });
 
-    // Create the game token contract
+    // Create the game token contract.
     let cw20_token = create_cw20(
         &mut router,
         &owner,
         "token".to_string(),
         "CWTOKEN".to_string(),
-        Uint128::new(1_000_000),
+        Uint128::new(1_000_000)
     );
 
     let (stage_bid, stage_claim_airdrop, stage_claim_prize) = valid_stages();
 
-    // Create the game's token contract
+    // Create the game contract.
     let cw20_token_address = Some(cw20_token.addr().to_string()).unwrap();
     let game_addr = create_game(
         &mut router,
@@ -743,69 +713,56 @@ fn claim() {
         stage_claim_airdrop.clone(),
         stage_claim_prize.clone(),
         Some(cw20_token_address.clone()),
-    )
-    .unwrap();
+    ).unwrap();
 
     // Check that the game has the correct cw20 token contract.
     let info = get_config(&router, &game_addr);
+
     assert_eq!(info.cw20_token_address, cw20_token_address);
 
-    // Check initial token balance of the owner
+    // Check initial token balance of the owner.
     let owner_balance = cw20_token
         .balance::<App, Addr, MyCustomQuery>(&router, owner.clone())
         .unwrap();
+
     assert_eq!(owner_balance, Uint128::new(1_000_000));
 
-    // Check that the correct Merkle roots have been saved.
+    // Register Merkle roots.
     let register_merkle_root_msg = ExecuteMsg::RegisterMerkleRoots {
         merkle_root_airdrop: test_data_airdrop.root,
         total_amount_airdrop: Some(Uint128::new(1_000)),
         merkle_root_game: test_data_game.root,
-        total_amount_game: Some(Uint128::new(1_000)),
+        total_amount_game: Some(Uint128::new(1_000_000)),
     };
-
     let _res = router
         .execute_contract(
             Addr::unchecked("owner0000"),
             game_addr.clone(),
             &register_merkle_root_msg,
             &[],
-        )
-        .unwrap();
-
-    let info = get_merkle_roots(&router, &game_addr);
-    assert_eq!(
-        info.merkle_root_airdrop,
-        "b45c1ea28b26adb13e412933c9e055b01fdf7585304b00cd8f1cb220aa6c5e88".to_string()
-    );
-    assert_eq!(info.total_amount, Uint128::new(1_000));
-    assert_eq!(
-        info.merkle_root_game,
-        "14b47be0716eebb3b9e16fb2d06dc3376dd2534705d9a9d38f6fbcc6f4f1c7d2".to_string()
-    );
+        ).unwrap();
 
     // Check that initially no token have been claimed.
-    let info = get_claimed_amount_airdrop(&router, &game_addr);
-    assert_eq!(info.total_claimed, Uint128::new(0));
+    let info = get_game_amount(&router, &game_addr);
+    assert_eq!(info.total_claimed_airdrop, Uint128::new(0));
+    assert_eq!(info.total_claimed_prize, Uint128::new(0));
+    assert_eq!(info.total_ticket_prize, Uint128::new(0));
+    assert_eq!(info.total_airdrop_amount, Uint128::new(1_000));
+    assert_eq!(info.total_airdrop_game_amount, Uint128::new(1_000_000));
 
     // Transfer token to the game contract and verify the balance.
-    let send_token_msg = cw20::Cw20ExecuteMsg::Transfer {
-        recipient: game_addr.clone().into(),
-        amount: Uint128::new(110),
-    };
-
+    let send_token_msg = cw20::Cw20ExecuteMsg::Transfer {recipient: game_addr.clone().into(),amount: Uint128::new(110)};
     let _res = router
         .execute_contract(
             owner,
             Addr::unchecked(cw20_token_address),
             &send_token_msg,
             &[],
-        )
-        .unwrap();
-
+        ).unwrap();
     let game_balance = cw20_token
         .balance::<App, Addr, MyCustomQuery>(&router, game_addr.clone())
         .unwrap();
+
     assert_eq!(game_balance, Uint128::new(110));
 
     // Claim not allowed if claiming stage not active.
@@ -814,29 +771,19 @@ fn claim() {
         proof_airdrop: test_data_airdrop.proofs.clone(),
         proof_game: test_data_game.proofs.clone()
     };
-
     let err = router
         .execute_contract(
             Addr::unchecked(game_addr.to_string()),
             game_addr.clone(),
             &claim_airdrop_msg,
             &[],
-        )
-        .unwrap_err();
+        ).unwrap_err();
 
-    assert_eq!(
-        ContractError::StageNotStarted {
-            stage_name: String::from("claim airdrop")
-        },
-        err.downcast().unwrap()
-    );
+    assert_eq!(ContractError::StageNotStarted {stage_name: String::from("claim airdrop")},err.downcast().unwrap());
 
+    // Trigger claiming airdrop stage.
     let current_block = router.block_info();
-    router.set_block(BlockInfo {
-        height: 201_001,
-        time: current_block.time,
-        chain_id: current_block.chain_id,
-    });
+    router.set_block(BlockInfo {height: 201_001,time: current_block.time,chain_id: current_block.chain_id});
 
     // Cannot be claimed a different amount than the one in the Merkle tree.
     let claim_airdrop_msg = ExecuteMsg::ClaimAirdrop {
@@ -844,20 +791,15 @@ fn claim() {
         proof_airdrop: test_data_airdrop.proofs.clone(),
         proof_game: test_data_game.proofs.clone()
     };
-
     let err = router
         .execute_contract(
             Addr::unchecked(test_data_airdrop.account.clone()),
             game_addr.clone(),
             &claim_airdrop_msg,
             &[],
-        )
-        .unwrap_err();
+        ).unwrap_err();
 
-    assert_eq!(
-        ContractError::VerificationFailed {},
-        err.downcast().unwrap()
-    );
+    assert_eq!(ContractError::VerificationFailed {}, err.downcast().unwrap());
 
     // Claim the correct ammount and verify balances.
     let claim_airdrop_msg = ExecuteMsg::ClaimAirdrop {
@@ -872,13 +814,16 @@ fn claim() {
             game_addr.clone(),
             &claim_airdrop_msg,
             &[],
-        )
-        .unwrap();
-
+        ).unwrap();
     let claimer_balance = cw20_token
         .balance::<App, Addr, MyCustomQuery>(&router, Addr::unchecked(test_data_airdrop.account.clone()))
         .unwrap();
+    let game_balance = cw20_token
+        .balance::<App, Addr, MyCustomQuery>(&router, game_addr.clone())
+        .unwrap();
+
     assert_eq!(claimer_balance, Uint128::new(100));
+    assert_eq!(game_balance, Uint128::new(10));
 
     let claim_airdrop_msg = ExecuteMsg::ClaimAirdrop {
         amount: test_data_airdrop.amount.clone(),
@@ -893,17 +838,140 @@ fn claim() {
             game_addr.clone(),
             &claim_airdrop_msg,
             &[],
-        )
-        .unwrap_err();
+        ).unwrap_err();
 
     assert_eq!(ContractError::AlreadyClaimed {}, err.downcast().unwrap());
+
+    // Verify total claimed amount
+    let info = get_game_amount(&router, &game_addr);
+
+    assert_eq!(info.total_claimed_airdrop, Uint128::new(100));
+}
+
+#[test]
+fn claim_prize() {
+    let mut router = mock_app();
+    let (native_token_denom, owner,ticket_price, bins, funds) = global_variables();
+
+    let test_data_airdrop: Encoded = from_slice(TEST_DATA_AIRDROP).unwrap();
+    let test_data_game: Encoded = from_slice(TEST_DATA_GAME).unwrap();
+
+    let address_1 = Addr::unchecked("address0001".to_string());
+    let address_2 = Addr::unchecked("address0002".to_string());
+
+    // Assign native token to owner and the two addresses
+    router.borrow_mut().init_modules(|router, _, storage| {
+        router.bank.init_balance(storage, &owner, funds.clone()).unwrap()
+    });
+    router.borrow_mut().init_modules(|router, _, storage| {
+        router.bank.init_balance(storage, &address_1, funds.clone()).unwrap()
+    });
+    router.borrow_mut().init_modules(|router, _, storage| {
+        router.bank.init_balance(storage, &address_2, funds.clone()).unwrap()
+    });
+
+    // Create the game token contract.
+    let cw20_token = create_cw20(
+        &mut router,
+        &owner,
+        "token".to_string(),
+        "CWTOKEN".to_string(),
+        Uint128::new(1_000_000_000)
+    );
+
+    let (stage_bid, stage_claim_airdrop, stage_claim_prize) = valid_stages();
+
+    // Create the game contract.
+    let cw20_token_address = Some(cw20_token.addr().to_string()).unwrap();
+    let game_addr = create_game(
+        &mut router,
+        &owner,
+        ticket_price,
+        bins,
+        stage_bid.clone(),
+        stage_claim_airdrop.clone(),
+        stage_claim_prize.clone(),
+        Some(cw20_token_address.clone()),
+    ).unwrap();
+
+    // Register Merkle roots.
+    let register_merkle_root_msg = ExecuteMsg::RegisterMerkleRoots {
+        merkle_root_airdrop: test_data_airdrop.root,
+        total_amount_airdrop: Some(Uint128::new(1_000)),
+        merkle_root_game: test_data_game.root,
+        total_amount_game: Some(Uint128::new(1_000_000)),
+    };
+    let _res = router
+        .execute_contract(
+            Addr::unchecked("owner0000"),
+            game_addr.clone(),
+            &register_merkle_root_msg,
+            &[],
+        ).unwrap();
+
+    // Transfer token to: 
+    // The game contract
+    let send_token_msg = cw20::Cw20ExecuteMsg::Transfer {recipient: game_addr.clone().into(),amount: Uint128::new(1_001_000)};
+    let _res = router
+        .execute_contract(
+            owner.clone(),
+            Addr::unchecked(cw20_token_address.clone()),
+            &send_token_msg,
+            &[],
+        ).unwrap();
+    // The first address
+    let send_token_msg = cw20::Cw20ExecuteMsg::Transfer {recipient: address_1.clone().to_string(), amount: Uint128::new(1_000)};
+    let _res = router
+        .execute_contract(
+            owner.clone(),
+            Addr::unchecked(cw20_token_address.clone()),
+            &send_token_msg,
+            &[],
+        ).unwrap();
+    // The second address
+    let send_token_msg = cw20::Cw20ExecuteMsg::Transfer {recipient: address_2.clone().to_string(), amount: Uint128::new(100)};
+    let _res = router
+        .execute_contract(
+            owner.clone(),
+            Addr::unchecked(cw20_token_address.clone()),
+            &send_token_msg,
+            &[],
+        ).unwrap();
 
     let game_balance = cw20_token
         .balance::<App, Addr, MyCustomQuery>(&router, game_addr.clone())
         .unwrap();
-    assert_eq!(game_balance, Uint128::new(10));
+    let address_1_balance = cw20_token
+        .balance::<App, Addr, MyCustomQuery>(&router, address_1.clone())
+        .unwrap();
+    let address_2_balance = cw20_token
+        .balance::<App, Addr, MyCustomQuery>(&router, address_2.clone())
+        .unwrap();
 
-    // Verify total claimed amount
-    let info = get_claimed_amount_airdrop(&router, &game_addr);
-    assert_eq!(info.total_claimed, Uint128::new(100));
+    assert_eq!(game_balance, Uint128::new(1_001_000));
+    assert_eq!(address_1_balance, Uint128::new(1_000));
+    assert_eq!(address_2_balance, Uint128::new(100));
+
+    let balance_owner: Coin = bank_balance(&mut router, &owner, native_token_denom.clone().to_string());
+    let balance_address_1: Coin = bank_balance(&mut router, &address_1, native_token_denom.clone().to_string());
+
+    // Trigger bid stage start.
+    let current_block = router.block_info();
+    router.set_block(BlockInfo {height: 200_001, time: current_block.time, chain_id: current_block.chain_id});
+
+    // Address 1 winning bid.
+    let bid_msg = ExecuteMsg::Bid { bin: 1 };
+    let bid = Coin {denom: native_token_denom.clone().into(),amount: Uint128::new(10)};
+    let _res = router
+        .execute_contract(
+            owner.clone(),
+            game_addr.clone(),
+            &bid_msg,
+            &[bid.clone()],
+        ).unwrap();
+    let balance: Coin = bank_balance(&mut router, &owner, native_token_denom.to_string());
+        assert_eq!(Uint128::new(999_990), balance.amount);
+    println!("{:?}", balance_owner);
+    println!("{:?}", balance_address_1);
+    assert!(false)
 }

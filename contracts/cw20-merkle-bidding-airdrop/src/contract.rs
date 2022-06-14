@@ -11,8 +11,8 @@ use std::convert::TryInto;
 
 use crate::error::ContractError;
 use crate::msg::{
-    AmountResponse, BidResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, MerkleRootsResponse,
-    MigrateMsg, QueryMsg, StagesResponse,
+    BidResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, MerkleRootsResponse,
+    MigrateMsg, QueryMsg, StagesResponse, GameAmountResponse,
 };
 use crate::state::{
     Config, Stage, BIDS, CLAIMED_AIRDROP_AMOUNT, CLAIM_AIRDROP, CONFIG, STAGE_BID,
@@ -604,7 +604,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::Stages {} => to_binary(&query_stages(deps)?),
         QueryMsg::Bid { address } => to_binary(&query_bid(deps, address)?),
         QueryMsg::MerkleRoot {} => to_binary(&query_merkle_root(deps)?),
-        QueryMsg::AirdropClaimedAmount {} => to_binary(&query_airdrop_claimed_amount(deps)?),
+        QueryMsg::GameAmount {} => to_binary(&query_game_amount(deps)?),
     }
 }
 
@@ -647,10 +647,22 @@ pub fn query_merkle_root(deps: Deps) -> StdResult<MerkleRootsResponse> {
     Ok(resp)
 }
 
-pub fn query_airdrop_claimed_amount(deps: Deps) -> StdResult<AmountResponse> {
-    let total_claimed = CLAIMED_AIRDROP_AMOUNT.load(deps.storage)?;
+pub fn query_game_amount(deps: Deps) -> StdResult<GameAmountResponse> {
+    // Prizes
+    let total_ticket_prize = TOTAL_TICKET_PRIZE.load(deps.storage)?;
+    let total_airdrop_amount = TOTAL_AIRDROP_AMOUNT.load(deps.storage)?;
+    let total_airdrop_game_amount = TOTAL_AIRDROP_GAME_AMOUNT.load(deps.storage)?;
+    // Claimed amount.
+    let total_claimed_airdrop = CLAIMED_AIRDROP_AMOUNT.load(deps.storage)?;
+    let total_claimed_prize = CLAIMED_PRIZE_AMOUNT.load(deps.storage)?;
 
-    let resp = AmountResponse { total_claimed };
+    let resp = GameAmountResponse {
+        total_ticket_prize,
+        total_airdrop_amount,
+        total_airdrop_game_amount,
+        total_claimed_airdrop,
+        total_claimed_prize
+     };
 
     Ok(resp)
 }
