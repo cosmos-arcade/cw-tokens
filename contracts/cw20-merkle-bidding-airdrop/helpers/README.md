@@ -26,21 +26,26 @@ Binary will be placed to path.
 
 **Generate Root:**
 ```shell
-merkle-airdrop-cli generateRoot --file ../testdata/airdrop_stage_2_list.json
+merkle-airdrop-cli generateRoot --file ../testdata/airdrop_game_list.json
+
+merkle-airdrop-cli generateRoot --file ../testdata/airdrop_list.json
 ```
 
 **Generate proof:**
 ```shell
-merkle-airdrop-cli generateProofs --file ../testdata/airdrop_stage_2_list.json \
-  --address wasm1ylna88nach9sn5n7qe7u5l6lh7dmt6lp2y63xx \
-  --amount 1000000000
+merkle-airdrop-cli generateProofs --file ../testdata/airdrop_game_list.json \
+  --address wasm1uy9ucvgerneekxpnfwyfnpxvlsx5dzdpf0mzjd \
+  --amount 3
+
+merkle-airdrop-cli generateProofs --file ../testdata/airdrop_list.json \
+  --address wasm1uy9ucvgerneekxpnfwyfnpxvlsx5dzdpf0mzjd \
+  --amount 1010
 ```
 
 **Verify proof:**
 ```shell
-PROOFS='[ "27e9b1ec8cb64709d0a8d3702344561674199fe81b885f1f9c9b2fb268795962","280777995d054081cbf208bccb70f8d736c1766b81d90a1fd21cd97d2d83a5cc","3946ea1758a5a2bf55bae1186168ad35aa0329805bc8bff1ca3d51345faec04a"
-]'
-merkle-airdrop-cli verifyProofs --file ../testdata/airdrop.json \
+PROOFS='["a714186eaedddde26b08b9afda38cf62fdf88d68e3aa0d5a4b55033487fe14a1","fb57090a813128eeb953a4210dd64ee73d2632b8158231effe2f0a18b2d3b5dd","c30992d264c74c58b636a31098c6c27a5fc08b3f61b7eafe2a33dcb445822343"]'
+merkle-airdrop-cli verifyProofs --file ../testdata/airdrop_list.json \
   --address wasm1k9hwzxs889jpvd7env8z49gad3a3633vg350tq \
   --amount 100 \
   --proofs $PROOFS
