@@ -12,7 +12,7 @@ use std::convert::TryInto;
 use crate::error::ContractError;
 use crate::msg::{
     BidResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, MerkleRootsResponse,
-    MigrateMsg, QueryMsg, StagesResponse, GameAmountResponse,
+    MigrateMsg, QueryMsg, StagesResponse, GameAmountsResponse,
 };
 use crate::state::{
     Config, Stage, BIDS, CLAIMED_AIRDROP_AMOUNT, CLAIM_AIRDROP, CONFIG, STAGE_BID,
@@ -384,7 +384,7 @@ pub fn execute_claim_airdrop(
     let mut root_buf: [u8; 32] = [0; 32];
     hex::decode_to_slice(merkle_root_airdrop, &mut root_buf)?;
     if root_buf != hash {
-        return Err(ContractError::VerificationFailed {});
+        return Err(ContractError::VerificationFailed { merkle_root: "airdrop".to_string() });
     }
 
     // If the sender has an active bid, check if it wins or not.
@@ -421,6 +421,8 @@ pub fn execute_claim_airdrop(
                 winners_number += Uint128::new(1);
                 Ok(winners_number)
             })?;
+        } else {
+            return Err(ContractError::VerificationFailed { merkle_root: "game".to_string() })
         }
     }
         
@@ -603,8 +605,8 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::Config {} => to_binary(&query_config(deps)?),
         QueryMsg::Stages {} => to_binary(&query_stages(deps)?),
         QueryMsg::Bid { address } => to_binary(&query_bid(deps, address)?),
-        QueryMsg::MerkleRoot {} => to_binary(&query_merkle_root(deps)?),
-        QueryMsg::GameAmount {} => to_binary(&query_game_amount(deps)?),
+        QueryMsg::MerkleRoots {} => to_binary(&query_merkle_root(deps)?),
+        QueryMsg::GameAmounts {} => to_binary(&query_game_amounts(deps)?),
     }
 }
 
@@ -647,19 +649,22 @@ pub fn query_merkle_root(deps: Deps) -> StdResult<MerkleRootsResponse> {
     Ok(resp)
 }
 
-pub fn query_game_amount(deps: Deps) -> StdResult<GameAmountResponse> {
+pub fn query_game_amounts(deps: Deps) -> StdResult<GameAmountsResponse> {
     // Prizes
     let total_ticket_prize = TOTAL_TICKET_PRIZE.load(deps.storage)?;
     let total_airdrop_amount = TOTAL_AIRDROP_AMOUNT.load(deps.storage)?;
     let total_airdrop_game_amount = TOTAL_AIRDROP_GAME_AMOUNT.load(deps.storage)?;
+    // Number of winners
+    let winners_amount = WINNERS.load(deps.storage)?;
     // Claimed amount.
     let total_claimed_airdrop = CLAIMED_AIRDROP_AMOUNT.load(deps.storage)?;
     let total_claimed_prize = CLAIMED_PRIZE_AMOUNT.load(deps.storage)?;
 
-    let resp = GameAmountResponse {
+    let resp = GameAmountsResponse {
         total_ticket_prize,
         total_airdrop_amount,
         total_airdrop_game_amount,
+        winners_amount,
         total_claimed_airdrop,
         total_claimed_prize
      };

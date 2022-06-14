@@ -79,8 +79,8 @@ pub enum QueryMsg {
     Config {},
     Stages {},
     Bid { address: String },
-    MerkleRoot {},
-    GameAmount {},
+    MerkleRoots {},
+    GameAmounts {},
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -118,10 +118,11 @@ pub struct MerkleRootsResponse {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
-pub struct GameAmountResponse {
+pub struct GameAmountsResponse {
     pub total_ticket_prize: Uint128,
     pub total_airdrop_amount: Uint128,
     pub total_airdrop_game_amount: Uint128,
+    pub winners_amount: Uint128,
     pub total_claimed_airdrop: Uint128,
     pub total_claimed_prize: Uint128,
 }

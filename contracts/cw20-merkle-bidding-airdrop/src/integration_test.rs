@@ -17,7 +17,7 @@ use crate::ContractError;
 
 use crate::msg::{
     BidResponse, ConfigResponse, ExecuteMsg, InstantiateMsg, MerkleRootsResponse,
-    QueryMsg, StagesResponse, GameAmountResponse,
+    QueryMsg, StagesResponse, GameAmountsResponse,
 };
 use crate::state::Stage;
 
@@ -169,14 +169,14 @@ fn get_config(router: &App, contract_addr: &Addr) -> ConfigResponse {
 fn get_merkle_roots(router: &App, contract_addr: &Addr) -> MerkleRootsResponse {
     router
         .wrap()
-        .query_wasm_smart(contract_addr, &QueryMsg::MerkleRoot {})
+        .query_wasm_smart(contract_addr, &QueryMsg::MerkleRoots {})
         .unwrap()
 }
 
-fn get_game_amount(router: &App, contract_addr: &Addr) -> GameAmountResponse {
+fn get_game_amount(router: &App, contract_addr: &Addr) -> GameAmountsResponse {
     router
         .wrap()
-        .query_wasm_smart(contract_addr, &QueryMsg::GameAmount {})
+        .query_wasm_smart(contract_addr, &QueryMsg::GameAmounts {})
         .unwrap()
 }
 
@@ -669,11 +669,16 @@ const TEST_DATA_AIRDROP: &[u8] = include_bytes!("../testdata/airdrop_test_data.j
 const TEST_DATA_GAME: &[u8] = include_bytes!("../testdata/airdrop_game_test_data.json");
 
 #[derive(Deserialize, Debug)]
-struct Encoded {
+struct Address {
     account: String,
     amount: Uint128,
-    root: String,
     proofs: Vec<String>,
+}
+
+#[derive(Deserialize, Debug)]
+struct Encoded {
+    root: String,
+    addresses: Vec<Address>
 }
 
 // ======================================================================================
@@ -767,9 +772,9 @@ fn claim_airdrop() {
 
     // Claim not allowed if claiming stage not active.
     let claim_airdrop_msg = ExecuteMsg::ClaimAirdrop {
-        amount: test_data_airdrop.amount,
-        proof_airdrop: test_data_airdrop.proofs.clone(),
-        proof_game: test_data_game.proofs.clone()
+        amount: test_data_airdrop.addresses[0].amount,
+        proof_airdrop: test_data_airdrop.addresses[0].proofs.clone(),
+        proof_game: test_data_game.addresses[0].proofs.clone()
     };
     let err = router
         .execute_contract(
@@ -788,35 +793,35 @@ fn claim_airdrop() {
     // Cannot be claimed a different amount than the one in the Merkle tree.
     let claim_airdrop_msg = ExecuteMsg::ClaimAirdrop {
         amount: Uint128::new(1_000),
-        proof_airdrop: test_data_airdrop.proofs.clone(),
-        proof_game: test_data_game.proofs.clone()
+        proof_airdrop: test_data_airdrop.addresses[0].proofs.clone(),
+        proof_game: test_data_game.addresses[0].proofs.clone()
     };
     let err = router
         .execute_contract(
-            Addr::unchecked(test_data_airdrop.account.clone()),
+            Addr::unchecked(test_data_airdrop.addresses[0].account.clone()),
             game_addr.clone(),
             &claim_airdrop_msg,
             &[],
         ).unwrap_err();
 
-    assert_eq!(ContractError::VerificationFailed {}, err.downcast().unwrap());
+    assert_eq!(ContractError::VerificationFailed { merkle_root: "airdrop".to_string() }, err.downcast().unwrap());
 
     // Claim the correct ammount and verify balances.
     let claim_airdrop_msg = ExecuteMsg::ClaimAirdrop {
-        amount: test_data_airdrop.amount.clone(),
-        proof_airdrop: test_data_airdrop.proofs.clone(),
-        proof_game: test_data_game.proofs.clone()
+        amount: test_data_airdrop.addresses[0].amount,
+        proof_airdrop: test_data_airdrop.addresses[0].proofs.clone(),
+        proof_game: test_data_game.addresses[0].proofs.clone()
     };
 
     let _res = router
         .execute_contract(
-            Addr::unchecked(test_data_airdrop.account.clone()),
+            Addr::unchecked(test_data_airdrop.addresses[0].account.clone()),
             game_addr.clone(),
             &claim_airdrop_msg,
             &[],
         ).unwrap();
     let claimer_balance = cw20_token
-        .balance::<App, Addr, MyCustomQuery>(&router, Addr::unchecked(test_data_airdrop.account.clone()))
+        .balance::<App, Addr, MyCustomQuery>(&router, Addr::unchecked(test_data_airdrop.addresses[0].account.clone()))
         .unwrap();
     let game_balance = cw20_token
         .balance::<App, Addr, MyCustomQuery>(&router, game_addr.clone())
@@ -826,15 +831,15 @@ fn claim_airdrop() {
     assert_eq!(game_balance, Uint128::new(10));
 
     let claim_airdrop_msg = ExecuteMsg::ClaimAirdrop {
-        amount: test_data_airdrop.amount.clone(),
-        proof_airdrop: test_data_airdrop.proofs.clone(),
-        proof_game: test_data_game.proofs.clone()
+        amount: test_data_airdrop.addresses[0].amount,
+        proof_airdrop: test_data_airdrop.addresses[0].proofs.clone(),
+        proof_game: test_data_game.addresses[0].proofs.clone()
     };
 
     // Airdrop cannot be claimed more than once.
     let err = router
         .execute_contract(
-            Addr::unchecked(test_data_airdrop.account.clone()),
+            Addr::unchecked(test_data_airdrop.addresses[0].account.clone()),
             game_addr.clone(),
             &claim_airdrop_msg,
             &[],
@@ -856,8 +861,8 @@ fn claim_prize() {
     let test_data_airdrop: Encoded = from_slice(TEST_DATA_AIRDROP).unwrap();
     let test_data_game: Encoded = from_slice(TEST_DATA_GAME).unwrap();
 
-    let address_1 = Addr::unchecked("address0001".to_string());
-    let address_2 = Addr::unchecked("address0002".to_string());
+    let address_1 = Addr::unchecked(test_data_airdrop.addresses[0].account.to_string());
+    let address_2 = Addr::unchecked(test_data_airdrop.addresses[1].account.to_string());
 
     // Assign native token to owner and the two addresses
     router.borrow_mut().init_modules(|router, _, storage| {
@@ -964,14 +969,47 @@ fn claim_prize() {
     let bid = Coin {denom: native_token_denom.clone().into(),amount: Uint128::new(10)};
     let _res = router
         .execute_contract(
-            owner.clone(),
+            address_1.clone(),
             game_addr.clone(),
             &bid_msg,
             &[bid.clone()],
         ).unwrap();
-    let balance: Coin = bank_balance(&mut router, &owner, native_token_denom.to_string());
-        assert_eq!(Uint128::new(999_990), balance.amount);
+
+    // Address 2 losing bid.
+    let bid_msg = ExecuteMsg::Bid { bin: 1 };
+    let bid = Coin {denom: native_token_denom.clone().into(),amount: Uint128::new(10)};
+    let _res = router
+        .execute_contract(
+            address_2.clone(),
+            game_addr.clone(),
+            &bid_msg,
+            &[bid.clone()],
+        ).unwrap();
+
+    // Trigger claiming airdrop stage.
+    let current_block = router.block_info();
+    router.set_block(BlockInfo {height: 201_001,time: current_block.time,chain_id: current_block.chain_id});
+
+    // Address 1 claim the correct ammount and verify balances and winners numbers.
+    let claim_airdrop_msg = ExecuteMsg::ClaimAirdrop {
+        amount: test_data_airdrop.addresses[0].amount,
+        proof_airdrop: test_data_airdrop.addresses[0].proofs.clone(),
+        proof_game: test_data_game.addresses[1].proofs.clone()
+    };
+    let _res = router
+        .execute_contract(
+            address_1.clone(),
+            game_addr.clone(),
+            &claim_airdrop_msg,
+            &[],
+        ).unwrap();
+    let balance_address_1 = cw20_token
+        .balance::<App, Addr, MyCustomQuery>(&router, address_1.clone())
+        .unwrap();
+
+    assert_eq!(balance_address_1, Uint128::new(1100));
+
     println!("{:?}", balance_owner);
     println!("{:?}", balance_address_1);
-    assert!(false)
+    assert!(true)
 }

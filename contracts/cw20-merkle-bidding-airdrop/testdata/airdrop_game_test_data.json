@@ -1,10 +1,22 @@
 {
-    "account": "wasm1k9hwzxs889jpvd7env8z49gad3a3633vg350tq",
-    "amount": "1",
     "root": "14b47be0716eebb3b9e16fb2d06dc3376dd2534705d9a9d38f6fbcc6f4f1c7d2",
-    "proofs": [
-        "c13e121362ded6e28c8557ff4b9278620efda8f8526ff109ff87527015e761fe",
-        "b3063d79e7b3822d32f0f62d43586af9ef05488d1075c6be1e53b630799d4421"
-      ]
-  }
+    "addresses" : [
+        {
+            "account": "wasm1k9hwzxs889jpvd7env8z49gad3a3633vg350tq",
+            "amount": "1",
+            "proofs": [
+                "c13e121362ded6e28c8557ff4b9278620efda8f8526ff109ff87527015e761fe",
+                "b3063d79e7b3822d32f0f62d43586af9ef05488d1075c6be1e53b630799d4421"
+            ]
+        },
+        {
+            "account": "wasm1uy9ucvgerneekxpnfwyfnpxvlsx5dzdpf0mzjd",
+            "amount": "3",
+            "proofs": [
+                "9a19aef1e9b9b724fb84117e34a9dbd7ee7f4072d9be19979b5eac5c027e56a3",
+                "b3063d79e7b3822d32f0f62d43586af9ef05488d1075c6be1e53b630799d4421"
+              ]
+        }
+    ]
+}
   

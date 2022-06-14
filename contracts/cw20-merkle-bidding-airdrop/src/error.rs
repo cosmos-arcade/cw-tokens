@@ -22,8 +22,8 @@ pub enum ContractError {
     #[error("Wrong length")]
     WrongLength {},
 
-    #[error("Verification failed")]
-    VerificationFailed {},
+    #[error("Verification failed for {merkle_root}")]
+    VerificationFailed { merkle_root: String },
 
     #[error("Cannot migrate from different contract type: {previous_contract}")]
     CannotMigrate { previous_contract: String },
